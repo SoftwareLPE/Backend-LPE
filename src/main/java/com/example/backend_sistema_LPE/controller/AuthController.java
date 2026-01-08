@@ -1,22 +1,29 @@
 package com.example.backend_sistema_LPE.controller;
 
+import com.example.backend_sistema_LPE.dto.PlantCompanyInfoDTO;
 import com.example.backend_sistema_LPE.dto.RegisterRequest;
 import com.example.backend_sistema_LPE.model.User;
+import com.example.backend_sistema_LPE.repository.UserPlantRepository;
 import com.example.backend_sistema_LPE.repository.UserRepository;
 import com.example.backend_sistema_LPE.security.JwtConfig;
 import com.example.backend_sistema_LPE.security.MyUserDetailsService;
+import com.example.backend_sistema_LPE.security.UserPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import com.example.backend_sistema_LPE.dto.AuthRequest;
 import com.example.backend_sistema_LPE.dto.AuthResponse;
+
+import java.util.List;
+import java.util.Map;
 
 
 @RestController
@@ -27,13 +34,15 @@ public class AuthController {
     private final JwtConfig jwtConfig;
     private final MyUserDetailsService userDetailsService;
     private final UserRepository userRepository;
+    private final UserPlantRepository userPlantRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public AuthController(AuthenticationManager authenticationManager, JwtConfig jwtConfig, MyUserDetailsService userDetailsService, UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthController(AuthenticationManager authenticationManager, JwtConfig jwtConfig, MyUserDetailsService userDetailsService, UserRepository userRepository, UserPlantRepository userPlantRepository, PasswordEncoder passwordEncoder) {
         this.authenticationManager = authenticationManager;
         this.jwtConfig = jwtConfig;
         this.userDetailsService = userDetailsService;
         this.userRepository = userRepository;
+        this.userPlantRepository = userPlantRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -57,15 +66,58 @@ public class AuthController {
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
             // 3. Obtener el usuario autenticado
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+            UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
+
             // o si prefieres, nuevamente desde tu servicio:
             // UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
 
             // 4. Generar token
-            String token = jwtConfig.generateToken(userDetails);
+            String token = jwtConfig.generateToken(principal);
 
-            // 5. Responder OK con el token
-            return ResponseEntity.ok(new AuthResponse(token));
+            List<String> roles = principal.getAuthorities().stream()
+                    .map(GrantedAuthority::getAuthority)
+                    .toList();
+
+            // Valores por defecto (para roles distintos)
+            Long plantId = null;
+            String plantName = null;
+            Long companyId = null;
+            String companyName = null;
+
+            // Solo si es coordinador de planta
+            if (roles.contains("ROLE_COORDINADOR_PLANTA")) {
+
+                var infoList = userPlantRepository.findPlantCompanyInfo(
+                        principal.getUserId(),
+                        org.springframework.data.domain.PageRequest.of(0, 1)
+                );
+
+                if (infoList.isEmpty()) {
+                    // Política recomendada: si este rol requiere planta, devuelve 409/400
+                    return ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body("El usuario tiene ROLE_COORDINADOR_PLANTA pero no tiene planta asignada");
+                }
+
+                PlantCompanyInfoDTO info = infoList.get(0);
+                plantId = info.getPlantId();
+                plantName = info.getPlantName();
+                companyId = info.getCompanyId();
+                companyName = info.getCompanyName();
+            }
+
+
+                // 5. Responder OK con el token
+            return ResponseEntity.ok(new AuthResponse(
+                    token,
+                    principal.getUserId(),
+                    principal.getUsername(),
+                    roles,
+                    plantId,
+                    plantName,
+                    companyId,
+                    companyName
+
+            ));
 
         } catch (BadCredentialsException ex) {
             // Credenciales incorrectas → 401
@@ -108,6 +160,21 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Error al registrar el usuario");
         }
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<?> me(Authentication authentication) {
+        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
+
+        List<String> roles = principal.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .toList();
+
+        return ResponseEntity.ok(Map.of(
+                "userId", principal.getUserId(),
+                "username", principal.getUsername(),
+                "roles", roles
+        ));
     }
 
 

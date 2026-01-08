@@ -46,6 +46,8 @@ public class SecurityConfig {
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/login", "/auth/register").permitAll()
+                        .requestMatchers("/admin/**").hasRole("ADMINISTRADOR")
+                        .requestMatchers("/me/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 // Si aún tienes httpBasic configurado y ya no lo quieres, NO lo llames aquí

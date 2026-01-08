@@ -3,12 +3,14 @@ package com.example.backend_sistema_LPE.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.List;
 
 @Component
 public class JwtConfig {
@@ -28,8 +30,14 @@ public class JwtConfig {
         Date now = new Date(System.currentTimeMillis());
         Date expiration = new Date(now.getTime() + EXPIRATION_TIME);
 
+        List<String> roles = userDetails.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .toList();
+
         return Jwts.builder()
                 .subject(userDetails.getUsername())
+                .claim("user",userDetails.getUsername())
+                .claim("roles", roles)
                 .issuedAt(now)
                 .expiration(expiration)
                 .signWith(key, Jwts.SIG.HS256) // Forma correcta en 0.13

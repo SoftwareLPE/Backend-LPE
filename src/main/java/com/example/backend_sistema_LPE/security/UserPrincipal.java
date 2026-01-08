@@ -1,6 +1,8 @@
 package com.example.backend_sistema_LPE.security;
 
+import com.example.backend_sistema_LPE.dto.CompanyDetailDTO;
 import com.example.backend_sistema_LPE.model.User;
+import lombok.Getter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -11,26 +13,41 @@ import java.util.List;
 
 public class UserPrincipal implements UserDetails {
 
-   private  User user;
 
-    public UserPrincipal(User user) {
-        this.user = user;
+    @Getter
+    private Long userId;
+    private String username;
+    private String password;
+    private CompanyDetailDTO companyDetailDTO;
+    private Collection<? extends GrantedAuthority> authorities;
+
+    public UserPrincipal(Long userId,
+                         String username,
+                         String password,
+                         Collection<? extends GrantedAuthority> authorities) {
+        this.userId = userId;
+        this.username = username;
+        this.password = password;
+        this.authorities = authorities;
     }
+
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.singleton(new SimpleGrantedAuthority("USER"));
+        return authorities;
     }
 
     @Override
     public String getPassword() {
-        return user.getPassword();
+        return password;
     }
 
     @Override
     public String getUsername() {
-        return user.getUserName();
+        return username;
     }
+
+
 
     @Override
     public boolean isAccountNonExpired() {
