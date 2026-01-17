@@ -12,6 +12,7 @@ public class DriverViewDTO {
     private Long driverId;
     private String driverName;
     private String lastName;
+    private Boolean active;
 
 //    private Long routeId;
     private String routeName;

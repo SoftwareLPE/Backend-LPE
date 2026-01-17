@@ -18,4 +18,12 @@ public interface DriverRouteRepository extends JpaRepository<DriverRoute,Long> {
     List<DriverRoute> findByDriver_Plant_PlantId(Long plantId);
 
     Optional<DriverRoute> findTopByDriverDriverIdOrderByDriverRouteIdDesc(Long driverId);
+
+    void deleteByDriverPlantCompanyCompanyId(Long companyId);
+
+    void deleteByDriverPlantPlantId(Long plantId);
+
+    boolean existsByRouteRouteId(Long routeId);
+
+    boolean existsByRouteRouteIdAndDriverDriverIdNot(Long routeId, Long driverId);
 }

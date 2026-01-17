@@ -47,6 +47,7 @@ public class DriverRouteServiceImpl implements DriverRouteService {
         driver.setDriverName(createDriverWithRouteDTO.getDriverName());
         driver.setLastName(createDriverWithRouteDTO.getLastName());
         driver.setPlant(plant);
+        driver.setActive(createDriverWithRouteDTO.getActive() == null ? Boolean.TRUE : createDriverWithRouteDTO.getActive());
 
         Driver savedDriver = driverRepository.save(driver);
 
@@ -60,6 +61,9 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                     .orElseThrow(() -> new RuntimeException(
                             "Route not found with id: " + createDriverWithRouteDTO.getRouteId()
                     ));
+            if (!route.getPlant().getPlantId().equals(plant.getPlantId())) {
+                throw new RuntimeException("Route does not belong to plant");
+            }
 
         } else {
             // No hay routeId, vemos el nombre de la ruta
@@ -67,10 +71,11 @@ public class DriverRouteServiceImpl implements DriverRouteService {
 
             if (routeName != null && !routeName.isBlank()) {
                 // Hay nombre de ruta: la buscamos o creamos (aplica para TITULAR y EXTRA)
-                route = routeRepository.findByRouteName(routeName)
+                route = routeRepository.findByRouteNameAndPlantPlantId(routeName, plant.getPlantId())
                         .orElseGet(() -> {
                             Route newRoute = new Route();
                             newRoute.setRouteName(routeName);
+                            newRoute.setPlant(plant);
                             return routeRepository.save(newRoute);
                         });
 
@@ -86,6 +91,10 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                 // Para EXTRA: se permite que la ruta sea null
                 // route se queda en null y continuamos
             }
+        }
+
+        if (route != null && driverRouteRepository.existsByRouteRouteId(route.getRouteId())) {
+            throw new RuntimeException("Route already assigned to another driver");
         }
 
         // 4. Crear registro en tabla intermedia
@@ -108,11 +117,14 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                 .orElseThrow(()->new RuntimeException("Chofer no encontrado"+ driverId));
 
         //Actualizar nombre y apellidos del chofer
-        if(updateDriverDTO.getDriverName()!=null && updateDriverDTO.getDriverName().isBlank()){
+        if (updateDriverDTO.getDriverName() != null && !updateDriverDTO.getDriverName().isBlank()) {
             driver.setDriverName(updateDriverDTO.getDriverName().trim());
         }
-        if(updateDriverDTO.getLastName()!=null && updateDriverDTO.getLastName().isBlank()){
+        if (updateDriverDTO.getLastName() != null && !updateDriverDTO.getLastName().isBlank()) {
             driver.setLastName(updateDriverDTO.getLastName().trim());
+        }
+        if (updateDriverDTO.getActive() != null) {
+            driver.setActive(updateDriverDTO.getActive());
         }
 
        // Buscar la asignación actual (última) o crear nueva
@@ -144,13 +156,17 @@ public class DriverRouteServiceImpl implements DriverRouteService {
         if (dtowithRouteId) {
             route = routeRepository.findById(updateDriverDTO.getRouteId())
                     .orElseThrow(() -> new RuntimeException("Route not found with id: " + updateDriverDTO.getRouteId()));
+            if (!route.getPlant().getPlantId().equals(driver.getPlant().getPlantId())) {
+                throw new RuntimeException("Route does not belong to driver's plant");
+            }
 
         } else if (dtowithRouteName) {
             String routeName = updateDriverDTO.getRouteName().trim();
-            route = routeRepository.findByRouteName(routeName)
+            route = routeRepository.findByRouteNameAndPlantPlantId(routeName, driver.getPlant().getPlantId())
                     .orElseGet(() -> {
                         Route newRoute = new Route();
                         newRoute.setRouteName(routeName);
+                        newRoute.setPlant(driver.getPlant());
                         return routeRepository.save(newRoute);
                     });
 
@@ -165,6 +181,11 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                     throw new RuntimeException("Un chofer TITULAR debe tener un recorrido (routeId o routeName).");
                 }
             }
+        }
+
+        if (route != null
+                && driverRouteRepository.existsByRouteRouteIdAndDriverDriverIdNot(route.getRouteId(), driverId)) {
+            throw new RuntimeException("Route already assigned to another driver");
         }
 
         // 6) Persistir cambios
@@ -184,6 +205,7 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                 driver.getDriverId(),
                 driver.getDriverName(),
                 driver.getLastName(),
+                driver.getActive(),
                 routeNameOut,
                 savedAssignment.getDriverType()
         );

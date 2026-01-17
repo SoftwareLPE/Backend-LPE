@@ -12,4 +12,7 @@ import java.util.List;
 @Repository
 public interface DriverRepository extends JpaRepository<Driver,Long> {
 
+    void deleteByPlantCompanyCompanyId(Long companyId);
+
+    void deleteByPlantPlantId(Long plantId);
 }

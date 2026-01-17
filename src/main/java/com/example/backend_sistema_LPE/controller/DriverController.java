@@ -2,11 +2,13 @@ package com.example.backend_sistema_LPE.controller;
 
 import com.example.backend_sistema_LPE.dto.CreateDriverWithRouteDTO;
 import com.example.backend_sistema_LPE.dto.DriverViewDTO;
+import com.example.backend_sistema_LPE.dto.UpdateDriverActiveDTO;
 import com.example.backend_sistema_LPE.dto.UpdateDriverDTO;
 import com.example.backend_sistema_LPE.model.Driver;
 import com.example.backend_sistema_LPE.service.DriverRouteService;
 import com.example.backend_sistema_LPE.service.DriverService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,8 +31,15 @@ public class DriverController {
     }
 
     @GetMapping("/{plantId}")
-    public ResponseEntity<List<DriverViewDTO>> getDriverByPlant(@PathVariable Long plantId){
-        List<DriverViewDTO> drivers = driverService.getDriversByPlant(plantId);
+    public ResponseEntity<List<DriverViewDTO>> getDriverByPlant(
+            @PathVariable Long plantId,
+            @RequestParam(required = false) Boolean active,
+            Authentication authentication
+    ){
+        boolean isAdmin = authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMINISTRADOR".equals(a.getAuthority()));
+        Boolean effectiveActive = isAdmin ? active : Boolean.TRUE;
+        List<DriverViewDTO> drivers = driverService.getDriversByPlant(plantId, effectiveActive);
         return ResponseEntity.ok(drivers);
     }
 
@@ -54,6 +63,15 @@ public class DriverController {
             @RequestBody UpdateDriverDTO updateDriverDTO
     ) {
         DriverViewDTO updated = driverRouteService.updateDriverWithAssignment(driverId, updateDriverDTO);
+        return ResponseEntity.ok(updated);
+    }
+
+    @PatchMapping("/{driverId}/active")
+    public ResponseEntity<Driver> updateDriverActive(
+            @PathVariable Long driverId,
+            @RequestBody UpdateDriverActiveDTO updateDriverActiveDTO
+    ) {
+        Driver updated = driverService.updateDriverActive(driverId, updateDriverActiveDTO.getActive());
         return ResponseEntity.ok(updated);
     }
 

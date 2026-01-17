@@ -14,13 +14,21 @@ import java.util.List;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-@Table(name = "routes")
+@Table(
+        name = "routes",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"plant_id", "route_name"})
+)
 public class Route {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long routeId;
     private String routeName;
     private String routeType;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "plant_id", nullable = false)
+    @JsonIgnore
+    private Plant plant;
 
     //Un recorrido puede tener varios driverRecorrido
     @OneToMany(mappedBy = "route")

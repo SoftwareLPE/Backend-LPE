@@ -23,6 +23,7 @@ public class Driver {
     private String driverName;
     private String lastName;
     private String email;
+    private Boolean active;
 
 
     @OneToMany(mappedBy = "driver")

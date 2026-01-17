@@ -37,5 +37,6 @@ public interface PlantRepository extends JpaRepository<Plant,Long> {
 """)
     List<Object[]> countPlantsByCompany();
 
+    void deleteByCompanyCompanyId(Long companyId);
 
 }

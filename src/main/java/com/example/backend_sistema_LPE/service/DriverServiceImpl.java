@@ -41,10 +41,11 @@ public class DriverServiceImpl implements DriverService {
     }
 
     @Override
-    public List<DriverViewDTO> getDriversByPlant(Long plantId) {
+    public List<DriverViewDTO> getDriversByPlant(Long plantId, Boolean active) {
         List<DriverRoute> assignments = driverRouteRepository.findByDriver_Plant_PlantId(plantId);
 
         return assignments.stream()
+                .filter(dr -> active == null || active.equals(dr.getDriver().getActive()))
                 .map(dr -> {
                     Driver d = dr.getDriver();
                     Route r = dr.getRoute();
@@ -53,6 +54,7 @@ public class DriverServiceImpl implements DriverService {
                             d.getDriverId(),
                             d.getDriverName(),
                             d.getLastName(),
+                            d.getActive(),
                             r != null ? r.getRouteName() : null,
                             dr.getDriverType()
                     );
@@ -70,11 +72,18 @@ public class DriverServiceImpl implements DriverService {
         driver.setDriverName(driverCreateDTO.getDriverName());
         driver.setLastName(driverCreateDTO.getLastName());
         driver.setPlant(plant);
+        driver.setActive(driverCreateDTO.getActive() == null ? Boolean.TRUE : driverCreateDTO.getActive());
 
         driverRepository.save(driver);
 
         Route route = routeRepository.findById(driverCreateDTO.getRouteId())
                 .orElseThrow(() -> new RuntimeException("Route not found"));
+        if (!route.getPlant().getPlantId().equals(plant.getPlantId())) {
+            throw new RuntimeException("Route does not belong to plant");
+        }
+        if (driverRouteRepository.existsByRouteRouteId(route.getRouteId())) {
+            throw new RuntimeException("Route already assigned to another driver");
+        }
 
         DriverRoute driverRoute = new DriverRoute();
         driverRoute.setDriver(driver);
@@ -92,6 +101,9 @@ public class DriverServiceImpl implements DriverService {
 
         existingDriver.setDriverName(driver.getDriverName());
         existingDriver.setLastName(driver.getLastName());
+        if (driver.getActive() != null) {
+            existingDriver.setActive(driver.getActive());
+        }
 
         return driverRepository.save(existingDriver);
     }
@@ -99,6 +111,14 @@ public class DriverServiceImpl implements DriverService {
     @Override
     public void deleteDriver(Long driverId) {
 
+    }
+
+    @Override
+    public Driver updateDriverActive(Long driverId, Boolean active) {
+        Driver existingDriver = driverRepository.findById(driverId).orElseThrow(() ->
+                new RuntimeException("Chofer no encontrado con id: " + driverId));
+        existingDriver.setActive(active);
+        return driverRepository.save(existingDriver);
     }
 }
 

@@ -13,11 +13,13 @@ public interface DriverService {
 
     Optional<Driver> getDriverById(Long driverId);
 
-    List<DriverViewDTO> getDriversByPlant(Long plantId);
+    List<DriverViewDTO> getDriversByPlant(Long plantId, Boolean active);
 
      void createDriver(CreateDriverWithRouteDTO driverCreateDTO);
 
     Driver updateDriver(Long driverId,Driver driver);
 
     void deleteDriver(Long driverId);
+
+    Driver updateDriverActive(Long driverId, Boolean active);
 }

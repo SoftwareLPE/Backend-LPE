@@ -22,6 +22,13 @@ public interface CompanyRepository extends JpaRepository<Company,Long> {
     Optional<Company> findByIdWithPlants(@Param("companyId") Long companyId);
 
     @Query("""
+      select distinct c
+      from Company c
+      left join fetch c.plants
+    """)
+    List<Company> findAllWithPlants();
+
+    @Query("""
    select new com.example.backend_sistema_LPE.dto.CompanyTableDTO(
        c.companyId,
        c.companyName,
