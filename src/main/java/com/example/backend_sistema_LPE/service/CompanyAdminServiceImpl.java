@@ -1,0 +1,160 @@
+package com.example.backend_sistema_LPE.service;
+
+import com.example.backend_sistema_LPE.dto.*;
+import com.example.backend_sistema_LPE.mapper.CompanyMapper;
+import com.example.backend_sistema_LPE.model.Company;
+import com.example.backend_sistema_LPE.model.Plant;
+import com.example.backend_sistema_LPE.repository.CascadaRowRepository;
+import com.example.backend_sistema_LPE.repository.CompanyRepository;
+import com.example.backend_sistema_LPE.repository.DriverRepository;
+import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
+import com.example.backend_sistema_LPE.repository.PlantRepository;
+import com.example.backend_sistema_LPE.repository.RoleCompanyRepository;
+import com.example.backend_sistema_LPE.repository.RolePlantRepository;
+import com.example.backend_sistema_LPE.repository.ShiftRepository;
+import com.example.backend_sistema_LPE.repository.UserCompanyRepository;
+import com.example.backend_sistema_LPE.repository.UserPlantRepository;
+import jakarta.transaction.Transactional;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class CompanyAdminServiceImpl implements CompanyAdminService{
+    private final CompanyRepository companyRepository;
+    private final PlantRepository plantRepository;
+    private final UserCompanyRepository userCompanyRepository;
+    private final UserPlantRepository userPlantRepository;
+    private final RoleCompanyRepository roleCompanyRepository;
+    private final RolePlantRepository rolePlantRepository;
+    private final DriverRepository driverRepository;
+    private final DriverRouteRepository driverRouteRepository;
+    private final CascadaRowRepository cascadaRowRepository;
+    private final ShiftRepository shiftRepository;
+
+    public CompanyAdminServiceImpl(
+            CompanyRepository companyRepository,
+            PlantRepository plantRepository,
+            UserCompanyRepository userCompanyRepository,
+            UserPlantRepository userPlantRepository,
+            RoleCompanyRepository roleCompanyRepository,
+            RolePlantRepository rolePlantRepository,
+            DriverRepository driverRepository,
+            DriverRouteRepository driverRouteRepository,
+            CascadaRowRepository cascadaRowRepository,
+            ShiftRepository shiftRepository
+    ) {
+        this.companyRepository = companyRepository;
+        this.plantRepository = plantRepository;
+        this.userCompanyRepository = userCompanyRepository;
+        this.userPlantRepository = userPlantRepository;
+        this.roleCompanyRepository = roleCompanyRepository;
+        this.rolePlantRepository = rolePlantRepository;
+        this.driverRepository = driverRepository;
+        this.driverRouteRepository = driverRouteRepository;
+        this.cascadaRowRepository = cascadaRowRepository;
+        this.shiftRepository = shiftRepository;
+    }
+
+    @Override
+    public List<CompanyListDTO> getAllCompanies() {
+        return companyRepository.findAll().stream()
+                .map(CompanyMapper::toListDTO).toList();
+    }
+
+    @Override
+    public CompanyDetailDTO getCompanyDetail(Long companyId) {
+        Company company = companyRepository.findByIdWithPlants(companyId)
+                .orElseThrow(()-> new RuntimeException("Company not found with id: "+companyId));
+        return CompanyMapper.toDetailDTO(company);
+    }
+
+    //Endpoint que agrega plantas a Compañias existentes en caso de ser necesario
+    @Override
+    @Transactional
+    public PlantDTO addPlantToCompany(Long companyId, CreateRequestPlantDTO dto) {
+        if(dto==null || dto.getPlantName()==null|| dto.getPlantName().trim().isBlank()){
+            throw new RuntimeException("Plant name is required");
+        }
+        Company company = companyRepository.findById(companyId)
+                .orElseThrow(()->new RuntimeException("Company not found " +companyId));
+
+        Plant plant = new Plant();
+        plant.setPlantName(dto.getPlantName().trim());
+        plant.setCompany(company);
+
+        Plant saved = plantRepository.save(plant);
+
+        return new PlantDTO(saved.getPlantId(), saved.getPlantName());
+    }
+
+
+    //Endpoint para crear compañias con sus respectivas plantas
+    @Override
+    @Transactional
+    public Company createCompany(CreateCompanyRequestDTO createCompanyRequestDTO) {
+        Company company = new Company();
+        company.setCompanyName(createCompanyRequestDTO.getCompanyName());
+
+        Company savedCompany = companyRepository.save(company);
+
+        if (createCompanyRequestDTO.getPlants()!=null){
+            for (CreateRequestPlantDTO plantDTO: createCompanyRequestDTO.getPlants()){
+                Plant plant = new Plant();
+                plant.setPlantName(plantDTO.getPlantName());
+                plant.setCompany(savedCompany);
+
+                plantRepository.save(plant);
+            }
+        }
+
+        return savedCompany;
+    }
+
+    @Override
+    @Transactional
+    public UpdateCompanyNameDTO updateCompanyName(Long companyId, UpdateCompanyNameDTO updateCompanyNameDTO) {
+        Company company = companyRepository.findById(companyId)
+                .orElseThrow(()->new RuntimeException("Company not found"+companyId));
+
+        company.setCompanyName(updateCompanyNameDTO.getCompanyName());
+
+        companyRepository.save(company);
+
+        return new UpdateCompanyNameDTO(company.getCompanyName());
+    }
+
+    @Override
+    public List<CompanyTableDTO> getCompaniesForTable() {
+        return companyRepository.findCompaniesForTable();
+    }
+
+    @Override
+    public List<CompanyDetailDTO> getAllCompaniesWithPlants() {
+        return companyRepository.findAllWithPlants().stream()
+                .map(CompanyMapper::toDetailDTO)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void deleteCompany(Long companyId) {
+        Company company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new RuntimeException("Company not found " + companyId));
+
+        shiftRepository.deleteByPlantCompanyCompanyId(companyId);
+        cascadaRowRepository.deleteByPlantCompanyCompanyId(companyId);
+        driverRouteRepository.deleteByDriverPlantCompanyCompanyId(companyId);
+        driverRepository.deleteByPlantCompanyCompanyId(companyId);
+
+        rolePlantRepository.deleteByPlantCompanyCompanyId(companyId);
+        userPlantRepository.deleteByPlantCompanyCompanyId(companyId);
+
+        plantRepository.deleteByCompanyCompanyId(companyId);
+
+        roleCompanyRepository.deleteByCompanyCompanyId(companyId);
+        userCompanyRepository.deleteByCompanyCompanyId(companyId);
+
+        companyRepository.delete(company);
+    }
+}
