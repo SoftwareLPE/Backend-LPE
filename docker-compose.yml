@@ -9,19 +9,21 @@ services:
       MYSQL_DATABASE: backend-sistema-LPE
       MYSQL_ROOT_PASSWORD: ADMINISTRADOR
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
 
   backend:
     build:
       context: .
-      dockerfile: DockerFile
+      dockerfile: Dockerfile
     container_name: lpe-backend
     restart: unless-stopped
     depends_on:
       - db
     environment:
+      DB_NAME: backend-sistema-LPE
+      DB_URL: jdbc:mysql://db:3306/backend-sistema-LPE
       DB_USER_NAME: root
       DB_PASSWORD: ADMINISTRADOR
     ports:
