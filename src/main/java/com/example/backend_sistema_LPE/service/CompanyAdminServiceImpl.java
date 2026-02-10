@@ -4,7 +4,7 @@ import com.example.backend_sistema_LPE.dto.*;
 import com.example.backend_sistema_LPE.mapper.CompanyMapper;
 import com.example.backend_sistema_LPE.model.Company;
 import com.example.backend_sistema_LPE.model.Plant;
-import com.example.backend_sistema_LPE.repository.CascadaRowRepository;
+import com.example.backend_sistema_LPE.repository.CascadaWeekRepository;
 import com.example.backend_sistema_LPE.repository.CompanyRepository;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
@@ -29,7 +29,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
     private final RolePlantRepository rolePlantRepository;
     private final DriverRepository driverRepository;
     private final DriverRouteRepository driverRouteRepository;
-    private final CascadaRowRepository cascadaRowRepository;
+    private final CascadaWeekRepository cascadaWeekRepository;
     private final ShiftRepository shiftRepository;
 
     public CompanyAdminServiceImpl(
@@ -41,7 +41,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
             RolePlantRepository rolePlantRepository,
             DriverRepository driverRepository,
             DriverRouteRepository driverRouteRepository,
-            CascadaRowRepository cascadaRowRepository,
+            CascadaWeekRepository cascadaWeekRepository,
             ShiftRepository shiftRepository
     ) {
         this.companyRepository = companyRepository;
@@ -52,7 +52,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
         this.rolePlantRepository = rolePlantRepository;
         this.driverRepository = driverRepository;
         this.driverRouteRepository = driverRouteRepository;
-        this.cascadaRowRepository = cascadaRowRepository;
+        this.cascadaWeekRepository = cascadaWeekRepository;
         this.shiftRepository = shiftRepository;
     }
 
@@ -143,7 +143,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
                 .orElseThrow(() -> new RuntimeException("Company not found " + companyId));
 
         shiftRepository.deleteByPlantCompanyCompanyId(companyId);
-        cascadaRowRepository.deleteByPlantCompanyCompanyId(companyId);
+        cascadaWeekRepository.deleteByPlantCompanyCompanyId(companyId);
         driverRouteRepository.deleteByDriverPlantCompanyCompanyId(companyId);
         driverRepository.deleteByPlantCompanyCompanyId(companyId);
 

@@ -60,5 +60,13 @@ public class UserServiceImpl implements UserService{
         return true;
     }
 
+    @Override
+    public java.util.List<com.example.backend_sistema_LPE.dto.UserRecipientDTO> getUsersByRoleName(
+            String roleName,
+            Boolean active
+    ) {
+        return userRepository.findRecipientsByRoleName(roleName, active);
+    }
+
 
 }

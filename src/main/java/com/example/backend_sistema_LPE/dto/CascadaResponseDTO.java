@@ -11,6 +11,7 @@ public class CascadaResponseDTO {
     private Long plantId;
     private String shiftId;
     private String dayKey;
+    private String status;
 
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekStartDate;

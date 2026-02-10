@@ -25,6 +25,14 @@ public class UserController {
     public List<User> getUsers(){
         return userService.getUsers();
     }
+
+    @GetMapping("/users/by-role")
+    public ResponseEntity<java.util.List<com.example.backend_sistema_LPE.dto.UserRecipientDTO>> getUsersByRole(
+            @RequestParam String roleName,
+            @RequestParam(required = false) Boolean active
+    ) {
+        return ResponseEntity.ok(userService.getUsersByRoleName(roleName, active));
+    }
     @GetMapping("/users{userId}")
     public User getUserById(@PathVariable("userId") Long userId){
         return userService.getUserById(userId);

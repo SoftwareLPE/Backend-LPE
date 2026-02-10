@@ -12,6 +12,7 @@ public class CreateDriverWithRouteDTO {
     private String lastName;
     private Long plantId;
     private Boolean active;
+    private java.util.Set<Long> shiftIds;
 
     // Datos de la ruta
     private Long routeId;      // opcional

@@ -3,6 +3,7 @@ package com.example.backend_sistema_LPE.controller;
 import com.example.backend_sistema_LPE.dto.PlantCompanyInfoDTO;
 import com.example.backend_sistema_LPE.dto.RegisterRequest;
 import com.example.backend_sistema_LPE.model.User;
+import com.example.backend_sistema_LPE.repository.RoleRepository;
 import com.example.backend_sistema_LPE.repository.UserPlantRepository;
 import com.example.backend_sistema_LPE.repository.UserRepository;
 import com.example.backend_sistema_LPE.security.JwtConfig;
@@ -36,14 +37,16 @@ public class AuthController {
     private final UserRepository userRepository;
     private final UserPlantRepository userPlantRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RoleRepository roleRepository;
 
-    public AuthController(AuthenticationManager authenticationManager, JwtConfig jwtConfig, MyUserDetailsService userDetailsService, UserRepository userRepository, UserPlantRepository userPlantRepository, PasswordEncoder passwordEncoder) {
+    public AuthController(AuthenticationManager authenticationManager, JwtConfig jwtConfig, MyUserDetailsService userDetailsService, UserRepository userRepository, UserPlantRepository userPlantRepository, PasswordEncoder passwordEncoder, RoleRepository roleRepository) {
         this.authenticationManager = authenticationManager;
         this.jwtConfig = jwtConfig;
         this.userDetailsService = userDetailsService;
         this.userRepository = userRepository;
         this.userPlantRepository = userPlantRepository;
         this.passwordEncoder = passwordEncoder;
+        this.roleRepository = roleRepository;
     }
 
     @PostMapping("/login")
@@ -148,7 +151,12 @@ public class AuthController {
             User user = new User();
             user.setUserName(request.getUsername());
             user.setPassword(passwordEncoder.encode(request.getPassword())); // IMPORTANTE: encriptar
-            // setear otros campos si los hay: email, roles, etc.
+            user.setName(request.getName());
+            user.setLastName(request.getLastName());
+            user.setEmail(request.getEmail());
+            user.setActive(request.getActive());
+            user.setRole(roleRepository.findById(request.getRoleId())
+                    .orElseThrow(() -> new RuntimeException("Role not found: " + request.getRoleId())));
 
             userRepository.save(user);
 

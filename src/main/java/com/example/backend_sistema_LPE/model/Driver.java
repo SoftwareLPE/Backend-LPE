@@ -9,6 +9,8 @@ import lombok.Setter;
 
 import java.sql.Date;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @Getter
@@ -35,4 +37,17 @@ public class Driver {
     @JoinColumn(name = "plant_id")
     @JsonIgnore
     private Plant plant;
+
+    @ManyToMany
+    @JoinTable(
+            name = "driver_shifts",
+            joinColumns = @JoinColumn(name = "driver_id"),
+            inverseJoinColumns = @JoinColumn(name = "shift_id")
+    )
+    @JsonIgnore
+    private Set<Shift> shifts = new HashSet<>();
+
+    @OneToMany(mappedBy = "driver")
+    @JsonIgnore
+    private Set<DriverPlantAssignment> plantAssignments = new HashSet<>();
 }

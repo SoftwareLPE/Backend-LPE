@@ -22,15 +22,18 @@ public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long userId;
+    @Column(name = "full_name")
     private String name;
     private String lastName;
+    @Column(name = "user_name")
     private String userName;
     private String email;
+    @Column(name = "user_password")
     private String password;
     private String phone;
+    @Column(name = "user_active")
     private Boolean active;
     private Date createAt;
-    private String passwordHash;
 
     @OneToMany(mappedBy = "user")
     private Set<UserCompany> userCompanies = new HashSet<>();

@@ -2,7 +2,7 @@ package com.example.backend_sistema_LPE.service;
 
 import com.example.backend_sistema_LPE.dto.UpdatePlantNameDTO;
 import com.example.backend_sistema_LPE.model.Plant;
-import com.example.backend_sistema_LPE.repository.CascadaRowRepository;
+import com.example.backend_sistema_LPE.repository.CascadaWeekRepository;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
@@ -19,7 +19,7 @@ public class PlantAdminServiceImpl implements PlantAdminService{
     private final RolePlantRepository rolePlantRepository;
     private final DriverRepository driverRepository;
     private final DriverRouteRepository driverRouteRepository;
-    private final CascadaRowRepository cascadaRowRepository;
+    private final CascadaWeekRepository cascadaWeekRepository;
     private final ShiftRepository shiftRepository;
 
     public PlantAdminServiceImpl(
@@ -28,7 +28,7 @@ public class PlantAdminServiceImpl implements PlantAdminService{
             RolePlantRepository rolePlantRepository,
             DriverRepository driverRepository,
             DriverRouteRepository driverRouteRepository,
-            CascadaRowRepository cascadaRowRepository,
+            CascadaWeekRepository cascadaWeekRepository,
             ShiftRepository shiftRepository
     ) {
         this.plantRepository = plantRepository;
@@ -36,7 +36,7 @@ public class PlantAdminServiceImpl implements PlantAdminService{
         this.rolePlantRepository = rolePlantRepository;
         this.driverRepository = driverRepository;
         this.driverRouteRepository = driverRouteRepository;
-        this.cascadaRowRepository = cascadaRowRepository;
+        this.cascadaWeekRepository = cascadaWeekRepository;
         this.shiftRepository = shiftRepository;
     }
 
@@ -61,7 +61,7 @@ public class PlantAdminServiceImpl implements PlantAdminService{
                 .orElseThrow(() -> new RuntimeException("Plant not found in company. plantId=" + plantId + " companyId=" + companyId));
 
         shiftRepository.deleteByPlantPlantId(plantId);
-        cascadaRowRepository.deleteByPlantPlantId(plantId);
+        cascadaWeekRepository.deleteByPlantPlantId(plantId);
         driverRouteRepository.deleteByDriverPlantPlantId(plantId);
         driverRepository.deleteByPlantPlantId(plantId);
 

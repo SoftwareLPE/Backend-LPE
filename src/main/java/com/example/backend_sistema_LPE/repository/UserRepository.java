@@ -49,4 +49,23 @@ public interface UserRepository extends JpaRepository<User,Long> {
             @Param("active") Boolean active,
             Pageable pageable
     );
+
+    @Query("""
+        select new com.example.backend_sistema_LPE.dto.UserRecipientDTO(
+            u.userId,
+            u.name,
+            u.lastName,
+            u.userName,
+            u.email
+        )
+        from User u
+        join u.role r
+        where r.roleName = :roleName
+          and (:active is null or u.active = :active)
+        order by u.name, u.lastName
+    """)
+    java.util.List<com.example.backend_sistema_LPE.dto.UserRecipientDTO> findRecipientsByRoleName(
+            @Param("roleName") String roleName,
+            @Param("active") Boolean active
+    );
 }

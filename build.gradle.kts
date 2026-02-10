@@ -31,8 +31,10 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-web")
+	implementation("com.github.librepdf:openpdf:1.3.30")
 
     implementation("io.jsonwebtoken:jjwt:0.13.0")
+	implementation("org.springframework.boot:spring-boot-starter-websocket")
 
 
 	compileOnly("org.projectlombok:lombok")
@@ -40,9 +42,11 @@ dependencies {
 	annotationProcessor("org.projectlombok:lombok")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.security:spring-security-test")
+	testImplementation("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	jvmArgs("-XX:+EnableDynamicAgentLoading")
 }

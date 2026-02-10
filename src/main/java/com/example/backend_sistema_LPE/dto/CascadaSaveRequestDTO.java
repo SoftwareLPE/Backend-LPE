@@ -5,15 +5,15 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class CascadaSaveRequestDTO {
     private Long plantId;
     private String shiftId;
-    private String dayKey;
 
     @JsonFormat(pattern = "yyyy-MM-dd")
-    private LocalDate weekStartDate;
+    private LocalDate weekDate;
 
-    private List<CascadaRowDTO> rows;
+    private Map<String, List<CascadaRowDTO>> days;
 }

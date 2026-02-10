@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: lpe-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: backend-sistema-LPE
+      MYSQL_ROOT_PASSWORD: ADMINISTRADOR
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  backend:
+    build:
+      context: .
+      dockerfile: DockerFile
+    container_name: lpe-backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DB_USER_NAME: root
+      DB_PASSWORD: ADMINISTRADOR
+    ports:
+      - "8080:8080"
+    command: ["java","-jar","app_backendLPE.jar"]
+
+volumes:
+  mysql_data:

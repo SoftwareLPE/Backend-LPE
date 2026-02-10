@@ -44,4 +44,7 @@ public class Shift {
     )
     @Column(name = "day_key", nullable = false)
     private Set<String> dayKeys = new HashSet<>();
+
+    @ManyToMany(mappedBy = "shifts")
+    private Set<Driver> drivers = new HashSet<>();
 }

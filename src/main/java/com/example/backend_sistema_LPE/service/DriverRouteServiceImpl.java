@@ -6,13 +6,17 @@ import com.example.backend_sistema_LPE.dto.DriverViewDTO;
 import com.example.backend_sistema_LPE.dto.UpdateDriverDTO;
 import com.example.backend_sistema_LPE.enums.DriverType;
 import com.example.backend_sistema_LPE.model.Driver;
+import com.example.backend_sistema_LPE.model.DriverPlantAssignment;
 import com.example.backend_sistema_LPE.model.DriverRoute;
 import com.example.backend_sistema_LPE.model.Plant;
 import com.example.backend_sistema_LPE.model.Route;
+import com.example.backend_sistema_LPE.model.Shift;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
+import com.example.backend_sistema_LPE.repository.DriverPlantAssignmentRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.RouteRepository;
+import com.example.backend_sistema_LPE.repository.ShiftRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
@@ -26,12 +30,16 @@ public class DriverRouteServiceImpl implements DriverRouteService {
     private final PlantRepository plantRepository;
     private final RouteRepository routeRepository;
     private final DriverRouteRepository driverRouteRepository;
+    private final ShiftRepository shiftRepository;
+    private final DriverPlantAssignmentRepository driverPlantAssignmentRepository;
 
-    public DriverRouteServiceImpl(DriverRepository driverRepository, PlantRepository plantRepository, RouteRepository routeRepository, DriverRouteRepository driverRouteRepository) {
+    public DriverRouteServiceImpl(DriverRepository driverRepository, PlantRepository plantRepository, RouteRepository routeRepository, DriverRouteRepository driverRouteRepository, ShiftRepository shiftRepository, DriverPlantAssignmentRepository driverPlantAssignmentRepository) {
         this.driverRepository = driverRepository;
         this.plantRepository = plantRepository;
         this.routeRepository = routeRepository;
         this.driverRouteRepository = driverRouteRepository;
+        this.shiftRepository = shiftRepository;
+        this.driverPlantAssignmentRepository = driverPlantAssignmentRepository;
     }
 
 
@@ -43,11 +51,23 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                 .orElseThrow(() -> new RuntimeException("Plant not found with id: " + createDriverWithRouteDTO.getPlantId()));
 
         // 2. Crear chofer
+        if (createDriverWithRouteDTO.getLastName() == null
+                || createDriverWithRouteDTO.getLastName().trim().isBlank()) {
+            throw new RuntimeException("Last name is required");
+        }
         Driver driver = new Driver();
         driver.setDriverName(createDriverWithRouteDTO.getDriverName());
-        driver.setLastName(createDriverWithRouteDTO.getLastName());
+        driver.setLastName(createDriverWithRouteDTO.getLastName().trim());
         driver.setPlant(plant);
         driver.setActive(createDriverWithRouteDTO.getActive() == null ? Boolean.TRUE : createDriverWithRouteDTO.getActive());
+        if (createDriverWithRouteDTO.getShiftIds() != null && !createDriverWithRouteDTO.getShiftIds().isEmpty()) {
+            Iterable<Shift> shifts = shiftRepository.findAllById(createDriverWithRouteDTO.getShiftIds());
+            java.util.HashSet<Shift> shiftSet = new java.util.HashSet<>();
+            for (Shift shift : shifts) {
+                shiftSet.add(shift);
+            }
+            driver.setShifts(shiftSet);
+        }
 
         Driver savedDriver = driverRepository.save(driver);
 
@@ -93,9 +113,16 @@ public class DriverRouteServiceImpl implements DriverRouteService {
             }
         }
 
-        if (route != null && driverRouteRepository.existsByRouteRouteId(route.getRouteId())) {
-            throw new RuntimeException("Route already assigned to another driver");
-        }
+        // Permit same route to be assigned to multiple drivers.
+
+        DriverPlantAssignment assignment = driverPlantAssignmentRepository
+                .findByDriverDriverIdAndPlantPlantId(savedDriver.getDriverId(), plant.getPlantId())
+                .orElseGet(DriverPlantAssignment::new);
+        assignment.setDriver(savedDriver);
+        assignment.setPlant(plant);
+        assignment.setRoute(route);
+        assignment.setDriverType(type);
+        driverPlantAssignmentRepository.save(assignment);
 
         // 4. Crear registro en tabla intermedia
         DriverRoute driverRoute = new DriverRoute();
@@ -120,11 +147,22 @@ public class DriverRouteServiceImpl implements DriverRouteService {
         if (updateDriverDTO.getDriverName() != null && !updateDriverDTO.getDriverName().isBlank()) {
             driver.setDriverName(updateDriverDTO.getDriverName().trim());
         }
-        if (updateDriverDTO.getLastName() != null && !updateDriverDTO.getLastName().isBlank()) {
+        if (updateDriverDTO.getLastName() != null) {
+            if (updateDriverDTO.getLastName().isBlank()) {
+                throw new RuntimeException("Last name is required");
+            }
             driver.setLastName(updateDriverDTO.getLastName().trim());
         }
         if (updateDriverDTO.getActive() != null) {
             driver.setActive(updateDriverDTO.getActive());
+        }
+        if (updateDriverDTO.getShiftIds() != null) {
+            Iterable<Shift> shifts = shiftRepository.findAllById(updateDriverDTO.getShiftIds());
+            java.util.HashSet<Shift> shiftSet = new java.util.HashSet<>();
+            for (Shift shift : shifts) {
+                shiftSet.add(shift);
+            }
+            driver.setShifts(shiftSet);
         }
 
        // Buscar la asignación actual (última) o crear nueva
@@ -153,20 +191,25 @@ public class DriverRouteServiceImpl implements DriverRouteService {
         boolean dtowithRouteId = updateDriverDTO.getRouteId() != null;
         boolean dtowithRouteName = updateDriverDTO.getRouteName() != null && !updateDriverDTO.getRouteName().isBlank();
 
+        Long targetPlantId = updateDriverDTO.getPlantId() != null
+                ? updateDriverDTO.getPlantId()
+                : driver.getPlant().getPlantId();
+
         if (dtowithRouteId) {
             route = routeRepository.findById(updateDriverDTO.getRouteId())
                     .orElseThrow(() -> new RuntimeException("Route not found with id: " + updateDriverDTO.getRouteId()));
-            if (!route.getPlant().getPlantId().equals(driver.getPlant().getPlantId())) {
+            if (!route.getPlant().getPlantId().equals(targetPlantId)) {
                 throw new RuntimeException("Route does not belong to driver's plant");
             }
 
         } else if (dtowithRouteName) {
             String routeName = updateDriverDTO.getRouteName().trim();
-            route = routeRepository.findByRouteNameAndPlantPlantId(routeName, driver.getPlant().getPlantId())
+            route = routeRepository.findByRouteNameAndPlantPlantId(routeName, targetPlantId)
                     .orElseGet(() -> {
                         Route newRoute = new Route();
                         newRoute.setRouteName(routeName);
-                        newRoute.setPlant(driver.getPlant());
+                        newRoute.setPlant(plantRepository.findById(targetPlantId)
+                                .orElseThrow(() -> new RuntimeException("Plant not found")));
                         return routeRepository.save(newRoute);
                     });
 
@@ -183,10 +226,21 @@ public class DriverRouteServiceImpl implements DriverRouteService {
             }
         }
 
-        if (route != null
-                && driverRouteRepository.existsByRouteRouteIdAndDriverDriverIdNot(route.getRouteId(), driverId)) {
-            throw new RuntimeException("Route already assigned to another driver");
-        }
+        // Permit same route to be assigned to multiple drivers.
+
+        Long plantId = targetPlantId;
+        DriverPlantAssignment assignment = driverPlantAssignmentRepository
+                .findByDriverDriverIdAndPlantPlantId(driverId, plantId)
+                .orElseGet(() -> {
+                    DriverPlantAssignment created = new DriverPlantAssignment();
+                    created.setDriver(driver);
+                    created.setPlant(plantRepository.findById(plantId)
+                            .orElseThrow(() -> new RuntimeException("Plant not found")));
+                    return created;
+                });
+        assignment.setRoute(route);
+        assignment.setDriverType(finalType);
+        driverPlantAssignmentRepository.save(assignment);
 
         // 6) Persistir cambios
         driverRepository.save(driver);
@@ -206,6 +260,7 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                 driver.getDriverName(),
                 driver.getLastName(),
                 driver.getActive(),
+                driver.getShifts().stream().map(Shift::getShiftId).collect(java.util.stream.Collectors.toSet()),
                 routeNameOut,
                 savedAssignment.getDriverType()
         );

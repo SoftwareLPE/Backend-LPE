@@ -4,6 +4,7 @@ import com.example.backend_sistema_LPE.dto.CreateDriverWithRouteDTO;
 import com.example.backend_sistema_LPE.dto.DriverViewDTO;
 import com.example.backend_sistema_LPE.dto.UpdateDriverActiveDTO;
 import com.example.backend_sistema_LPE.dto.UpdateDriverDTO;
+import com.example.backend_sistema_LPE.dto.UpdateDriverShiftsDTO;
 import com.example.backend_sistema_LPE.model.Driver;
 import com.example.backend_sistema_LPE.service.DriverRouteService;
 import com.example.backend_sistema_LPE.service.DriverService;
@@ -43,6 +44,19 @@ public class DriverController {
         return ResponseEntity.ok(drivers);
     }
 
+    @GetMapping("/by-shift/{shiftId}")
+    public ResponseEntity<List<DriverViewDTO>> getDriversByShift(
+            @PathVariable Long shiftId,
+            @RequestParam(required = false) Boolean active,
+            Authentication authentication
+    ) {
+        boolean isAdmin = authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMINISTRADOR".equals(a.getAuthority()));
+        Boolean effectiveActive = isAdmin ? active : Boolean.TRUE;
+        List<DriverViewDTO> drivers = driverService.getDriversByShift(shiftId, effectiveActive);
+        return ResponseEntity.ok(drivers);
+    }
+
     @PostMapping("create-driver")
     public ResponseEntity<Void> createDriver(@RequestBody CreateDriverWithRouteDTO driverCreateDTO) {
         driverService.createDriver(driverCreateDTO);
@@ -72,6 +86,15 @@ public class DriverController {
             @RequestBody UpdateDriverActiveDTO updateDriverActiveDTO
     ) {
         Driver updated = driverService.updateDriverActive(driverId, updateDriverActiveDTO.getActive());
+        return ResponseEntity.ok(updated);
+    }
+
+    @PatchMapping("/{driverId}/shifts")
+    public ResponseEntity<Driver> updateDriverShifts(
+            @PathVariable Long driverId,
+            @RequestBody UpdateDriverShiftsDTO updateDriverShiftsDTO
+    ) {
+        Driver updated = driverService.updateDriverShifts(driverId, updateDriverShiftsDTO.getShiftIds());
         return ResponseEntity.ok(updated);
     }
 

@@ -22,4 +22,8 @@ public interface DriverService {
     void deleteDriver(Long driverId);
 
     Driver updateDriverActive(Long driverId, Boolean active);
+
+    Driver updateDriverShifts(Long driverId, java.util.Set<Long> shiftIds);
+
+    java.util.List<com.example.backend_sistema_LPE.dto.DriverViewDTO> getDriversByShift(Long shiftId, Boolean active);
 }

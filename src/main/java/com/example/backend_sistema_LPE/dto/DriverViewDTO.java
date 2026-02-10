@@ -13,6 +13,7 @@ public class DriverViewDTO {
     private String driverName;
     private String lastName;
     private Boolean active;
+    private java.util.Set<Long> shiftIds;
 
 //    private Long routeId;
     private String routeName;
