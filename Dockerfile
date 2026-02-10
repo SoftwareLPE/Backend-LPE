@@ -1,5 +1,10 @@
+FROM eclipse-temurin:21-jdk AS build
+WORKDIR /app
+COPY . .
+RUN ./gradlew bootJar
+
 FROM eclipse-temurin:21-jre
-ARG JAR_FILE=build/libs/*.jar
-COPY ${JAR_FILE} app_backendLPE.jar
+WORKDIR /app
+COPY --from=build /app/build/libs/*.jar app_backendLPE.jar
 EXPOSE 8080
 ENTRYPOINT ["java","-jar","app_backendLPE.jar"]
