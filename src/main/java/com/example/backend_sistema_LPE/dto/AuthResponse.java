@@ -15,6 +15,7 @@ public class AuthResponse {
     private Long userId;
     private String username;
     private List<String> roles;
+    private List<String> permissions;
 
     // Solo relevante para ROLE_COORDINADOR_PLANTA
     private Long plantId;

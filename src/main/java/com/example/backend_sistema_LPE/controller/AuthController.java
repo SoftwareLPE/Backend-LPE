@@ -3,7 +3,9 @@ package com.example.backend_sistema_LPE.controller;
 import com.example.backend_sistema_LPE.dto.PlantCompanyInfoDTO;
 import com.example.backend_sistema_LPE.dto.RegisterRequest;
 import com.example.backend_sistema_LPE.model.User;
+import com.example.backend_sistema_LPE.repository.RolePermissionRepository;
 import com.example.backend_sistema_LPE.repository.RoleRepository;
+import com.example.backend_sistema_LPE.repository.PermissionRepository;
 import com.example.backend_sistema_LPE.repository.UserPlantRepository;
 import com.example.backend_sistema_LPE.repository.UserRepository;
 import com.example.backend_sistema_LPE.security.JwtConfig;
@@ -38,8 +40,10 @@ public class AuthController {
     private final UserPlantRepository userPlantRepository;
     private final PasswordEncoder passwordEncoder;
     private final RoleRepository roleRepository;
+    private final RolePermissionRepository rolePermissionRepository;
+    private final PermissionRepository permissionRepository;
 
-    public AuthController(AuthenticationManager authenticationManager, JwtConfig jwtConfig, MyUserDetailsService userDetailsService, UserRepository userRepository, UserPlantRepository userPlantRepository, PasswordEncoder passwordEncoder, RoleRepository roleRepository) {
+    public AuthController(AuthenticationManager authenticationManager, JwtConfig jwtConfig, MyUserDetailsService userDetailsService, UserRepository userRepository, UserPlantRepository userPlantRepository, PasswordEncoder passwordEncoder, RoleRepository roleRepository, RolePermissionRepository rolePermissionRepository, PermissionRepository permissionRepository) {
         this.authenticationManager = authenticationManager;
         this.jwtConfig = jwtConfig;
         this.userDetailsService = userDetailsService;
@@ -47,6 +51,8 @@ public class AuthController {
         this.userPlantRepository = userPlantRepository;
         this.passwordEncoder = passwordEncoder;
         this.roleRepository = roleRepository;
+        this.rolePermissionRepository = rolePermissionRepository;
+        this.permissionRepository = permissionRepository;
     }
 
     @PostMapping("/login")
@@ -80,6 +86,20 @@ public class AuthController {
             List<String> roles = principal.getAuthorities().stream()
                     .map(GrantedAuthority::getAuthority)
                     .toList();
+
+            List<String> permissions = List.of();
+            if (principal.getUserId() != null) {
+                User user = userRepository.findById(principal.getUserId()).orElse(null);
+                if (user != null && user.getRole() != null) {
+                    List<Long> permissionIds = rolePermissionRepository.findPermissionIdsByRoleId(
+                            user.getRole().getRoleId()
+                    );
+                    permissions = permissionRepository.findAllById(permissionIds).stream()
+                            .map(p -> p.getCode())
+                            .distinct()
+                            .toList();
+                }
+            }
 
             // Valores por defecto (para roles distintos)
             Long plantId = null;
@@ -115,6 +135,7 @@ public class AuthController {
                     principal.getUserId(),
                     principal.getUsername(),
                     roles,
+                    permissions,
                     plantId,
                     plantName,
                     companyId,

@@ -4,8 +4,11 @@ import com.example.backend_sistema_LPE.dto.AuthRequest;
 import com.example.backend_sistema_LPE.dto.AuthResponse;
 import com.example.backend_sistema_LPE.dto.PlantCompanyInfoDTO;
 import com.example.backend_sistema_LPE.dto.RegisterRequest;
+import com.example.backend_sistema_LPE.model.Permission;
 import com.example.backend_sistema_LPE.model.Role;
 import com.example.backend_sistema_LPE.model.User;
+import com.example.backend_sistema_LPE.repository.PermissionRepository;
+import com.example.backend_sistema_LPE.repository.RolePermissionRepository;
 import com.example.backend_sistema_LPE.repository.RoleRepository;
 import com.example.backend_sistema_LPE.repository.UserPlantRepository;
 import com.example.backend_sistema_LPE.repository.UserRepository;
@@ -53,6 +56,10 @@ class AuthControllerTest {
     private PasswordEncoder passwordEncoder;
     @Mock
     private RoleRepository roleRepository;
+    @Mock
+    private RolePermissionRepository rolePermissionRepository;
+    @Mock
+    private PermissionRepository permissionRepository;
 
     private AuthController controller;
 
@@ -65,7 +72,9 @@ class AuthControllerTest {
                 userRepository,
                 userPlantRepository,
                 passwordEncoder,
-                roleRepository
+                roleRepository,
+                rolePermissionRepository,
+                permissionRepository
         );
     }
 
@@ -86,6 +95,16 @@ class AuthControllerTest {
 
         when(authenticationManager.authenticate(any())).thenReturn(authentication);
         when(jwtConfig.generateToken(principal)).thenReturn("jwt-token");
+        User user = new User();
+        Role role = new Role();
+        role.setRoleId(3L);
+        user.setRole(role);
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(rolePermissionRepository.findPermissionIdsByRoleId(3L)).thenReturn(List.of(1L));
+        Permission permission = new Permission();
+        permission.setPermissionId(1L);
+        permission.setCode("DRIVERS_VIEW");
+        when(permissionRepository.findAllById(List.of(1L))).thenReturn(List.of(permission));
 
         ResponseEntity<?> response = controller.login(request);
 
@@ -95,6 +114,7 @@ class AuthControllerTest {
         assertThat(body.getToken()).isEqualTo("jwt-token");
         assertThat(body.getUserId()).isEqualTo(10L);
         assertThat(body.getRoles()).contains("ROLE_ADMINISTRADOR");
+        assertThat(body.getPermissions()).contains("DRIVERS_VIEW");
         assertThat(body.getPlantId()).isNull();
     }
 
