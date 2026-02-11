@@ -2,16 +2,17 @@ version: "3.9"
 
 services:
   db:
-    image: mysql:8.0
-    container_name: lpe-mysql
+    image: postgres:16
+    container_name: lpe-postgres
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: backend-sistema-LPE
-      MYSQL_ROOT_PASSWORD: ADMINISTRADOR
+      POSTGRES_DB: backend_sistema_lpe
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ADMINISTRADOR
     ports:
-      - "3307:3306"
+      - "5432:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
 
   backend:
     build:
@@ -22,13 +23,13 @@ services:
     depends_on:
       - db
     environment:
-      DB_NAME: backend-sistema-LPE
-      DB_URL: jdbc:mysql://db:3306/backend-sistema-LPE
-      DB_USER_NAME: root
+      DB_NAME: backend_sistema_lpe
+      DB_URL: jdbc:postgresql://db:5432/backend_sistema_lpe
+      DB_USER_NAME: postgres
       DB_PASSWORD: ADMINISTRADOR
     ports:
       - "8080:8080"
     command: ["java","-jar","app_backendLPE.jar"]
 
 volumes:
-  mysql_data:
+  postgres_data:
