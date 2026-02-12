@@ -48,9 +48,10 @@ public class RoleAdminServiceImpl implements RoleAdminService{
         role.setDescription(dto.getDescription());
         Role savedRole = roleRepository.save(role);
 
-        // Permisos
-        List<Permission> permissions = permissionRepository.findAllById(dto.getPermissionIds());
-        if (permissions.size() != dto.getPermissionIds().size()) {
+        // Permisos (deduplicar para evitar inserts duplicados)
+        Set<Long> uniquePermissionIds = new HashSet<>(dto.getPermissionIds());
+        List<Permission> permissions = permissionRepository.findAllById(uniquePermissionIds);
+        if (permissions.size() != uniquePermissionIds.size()) {
             throw new RuntimeException("One or more permissionIds are invalid");
         }
 
@@ -85,6 +86,7 @@ public class RoleAdminServiceImpl implements RoleAdminService{
 
         // 4) Reemplazar permisos (DEDUP)
         rolePermissionRepository.deleteByRoleRoleId(roleId);
+        rolePermissionRepository.flush();
 
         if (dto.getPermissionIds() == null || dto.getPermissionIds().isEmpty()) {
             throw new RuntimeException("permissionIds must not be empty");
