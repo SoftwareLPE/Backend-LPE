@@ -17,6 +17,8 @@ public class CreateDriverWithRouteDTO {
     // Datos de la ruta
     private Long routeId;      // opcional
     private String routeName;  // opcional, según el caso
+    private String routeLocation;
+    private String unitType;
 
     // Datos de la asignación
     private DriverType driverType; // TITULAR / EXTRA

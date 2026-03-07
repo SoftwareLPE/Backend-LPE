@@ -22,11 +22,33 @@ public class Plant {
     private Long plantId;
     private String plantName;
     private String location;
+    @Column(name = "format_catalog_id", nullable = false)
+    private Long formatCatalogId;
+
+    @Column(name = "format_type_id")
+    private Long formatTypeId;
 
     //Una planta puede tener varios choferes
-    @OneToMany(mappedBy = "plant")
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore
     private List<Driver> drivers;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
+    private List<Route> routes;
+
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
+    private List<FormatWeek> formatWeeks;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
+    private List<RegalWeek> regalWeeks;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
+    private List<FlexsurWeek> flexsurWeeks;
 
     @ManyToOne
     @JoinColumn(name = "companyId",nullable = false)

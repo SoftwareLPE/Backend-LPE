@@ -1,0 +1,840 @@
+package com.example.backend_sistema_LPE.service;
+
+import com.example.backend_sistema_LPE.dto.CascadaResponseDTO;
+import com.example.backend_sistema_LPE.dto.CascadaRowDTO;
+import com.example.backend_sistema_LPE.dto.CascadaSaveRequestDTO;
+import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
+import com.example.backend_sistema_LPE.dto.CascadaWeekItemDTO;
+import com.example.backend_sistema_LPE.dto.CascadaWeekResponseDTO;
+import com.example.backend_sistema_LPE.dto.CascadaWeekTotalsDTO;
+import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
+import com.example.backend_sistema_LPE.dto.StandardWeeklyResponseDTO;
+import com.example.backend_sistema_LPE.dto.StandardWeeklyRowDTO;
+import com.example.backend_sistema_LPE.dto.StandardWeeklyShiftDTO;
+import com.example.backend_sistema_LPE.enums.CascadaStatus;
+import com.example.backend_sistema_LPE.enums.CascadaType;
+import com.example.backend_sistema_LPE.enums.DriverType;
+import com.example.backend_sistema_LPE.model.CascadaRecipient;
+import com.example.backend_sistema_LPE.model.CascadaStandardCell;
+import com.example.backend_sistema_LPE.model.CascadaStandardWeek;
+import com.example.backend_sistema_LPE.model.Driver;
+import com.example.backend_sistema_LPE.model.DriverPlantAssignment;
+import com.example.backend_sistema_LPE.model.Plant;
+import com.example.backend_sistema_LPE.model.Route;
+import com.example.backend_sistema_LPE.model.User;
+import com.example.backend_sistema_LPE.repository.CascadaRecipientRepository;
+import com.example.backend_sistema_LPE.repository.CascadaStandardCellRepository;
+import com.example.backend_sistema_LPE.repository.CascadaStandardWeekRepository;
+import com.example.backend_sistema_LPE.repository.DriverPlantAssignmentRepository;
+import com.example.backend_sistema_LPE.repository.DriverRepository;
+import com.example.backend_sistema_LPE.repository.PlantRepository;
+import com.example.backend_sistema_LPE.repository.RouteRepository;
+import com.example.backend_sistema_LPE.repository.UserRepository;
+import com.example.backend_sistema_LPE.dto.ShiftDTO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+public class CascadaStandardServiceImpl implements CascadaStandardService {
+    private static final Logger log = LoggerFactory.getLogger(CascadaStandardServiceImpl.class);
+
+    private final CascadaStandardWeekRepository weekRepository;
+    private final CascadaStandardCellRepository cellRepository;
+    private final CascadaRecipientRepository cascadaRecipientRepository;
+    private final PlantRepository plantRepository;
+    private final DriverRepository driverRepository;
+    private final DriverPlantAssignmentRepository driverPlantAssignmentRepository;
+    private final RouteRepository routeRepository;
+    private final UserRepository userRepository;
+    private final ShiftService shiftService;
+    private final SimpMessagingTemplate messagingTemplate;
+
+    public CascadaStandardServiceImpl(
+            CascadaStandardWeekRepository weekRepository,
+            CascadaStandardCellRepository cellRepository,
+            CascadaRecipientRepository cascadaRecipientRepository,
+            PlantRepository plantRepository,
+            DriverRepository driverRepository,
+            DriverPlantAssignmentRepository driverPlantAssignmentRepository,
+            RouteRepository routeRepository,
+            UserRepository userRepository,
+            ShiftService shiftService,
+            SimpMessagingTemplate messagingTemplate
+    ) {
+        this.weekRepository = weekRepository;
+        this.cellRepository = cellRepository;
+        this.cascadaRecipientRepository = cascadaRecipientRepository;
+        this.plantRepository = plantRepository;
+        this.driverRepository = driverRepository;
+        this.driverPlantAssignmentRepository = driverPlantAssignmentRepository;
+        this.routeRepository = routeRepository;
+        this.userRepository = userRepository;
+        this.shiftService = shiftService;
+        this.messagingTemplate = messagingTemplate;
+    }
+
+    @Override
+    public CascadaResponseDTO getCascada(Long plantId, LocalDate weekStartDate, String shiftId, String dayKey, String status) {
+        CascadaStandardWeek week = weekRepository
+                .findByPlantPlantIdAndWeekStartDateAndShiftId(plantId, weekStartDate, shiftId)
+                .orElse(null);
+
+        List<CascadaRowDTO> rowDTOs = new ArrayList<>();
+        if (week != null && dayKey != null && !dayKey.isBlank()) {
+            List<CascadaStandardCell> cells = cellRepository.findByWeekAndDayKey(week, dayKey);
+            Map<Long, Driver> driversById = loadDrivers(cells);
+            Map<Long, DriverPlantAssignment> assignmentsByDriverId = loadAssignmentsByPlant(plantId);
+            Map<Long, Route> routesById = loadRoutes(cells);
+            for (CascadaStandardCell cell : cells) {
+                CascadaRowDTO row = toRowDTO(cell);
+                Route route = cell.getRouteId() == null ? null : routesById.get(cell.getRouteId());
+                enrichRow(
+                        row,
+                        driversById.get(cell.getDriver().getDriverId()),
+                        assignmentsByDriverId.get(cell.getDriver().getDriverId()),
+                        route
+                );
+                rowDTOs.add(row);
+            }
+        }
+
+        if (week != null && status != null && !status.isBlank()) {
+            if (week.getStatus() == null || !week.getStatus().name().equals(status)) {
+                rowDTOs = List.of();
+            }
+        }
+
+        CascadaResponseDTO response = new CascadaResponseDTO();
+        response.setPlantId(plantId);
+        response.setWeekStartDate(weekStartDate);
+        response.setShiftId(shiftId);
+        response.setDayKey(dayKey);
+        response.setStatus(week == null ? status : week.getStatus().name());
+        response.setRows(rowDTOs);
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public void saveCascada(CascadaSaveRequestDTO request) {
+        log.info(
+                "SAVE standard cascada: plantId={}, weekDate={}, shiftId={}, days={}",
+                request.getPlantId(),
+                request.getWeekDate(),
+                request.getShiftId(),
+                request.getDays() == null ? 0 : request.getDays().size()
+        );
+        if (request.getPlantId() == null) {
+            throw new RuntimeException("plantId is required");
+        }
+        if (request.getWeekDate() == null) {
+            throw new RuntimeException("weekDate is required");
+        }
+        if (request.getShiftId() == null || request.getShiftId().isBlank()) {
+            throw new RuntimeException("shiftId is required");
+        }
+        if (request.getDays() == null || request.getDays().isEmpty()) {
+            throw new RuntimeException("days is required");
+        }
+
+        log.info("Days keys recibidos: {}", request.getDays().keySet());
+
+        Plant plant = plantRepository.findById(request.getPlantId())
+                .orElseThrow(() -> new RuntimeException("Plant not found"));
+
+        List<Long> driverIds = request.getDays().values().stream()
+                .filter(java.util.Objects::nonNull)
+                .flatMap(list -> list.stream().map(CascadaRowDTO::getDriverId))
+                .distinct()
+                .toList();
+
+        Map<Long, Driver> driversById = driverRepository.findAllById(driverIds).stream()
+                .collect(Collectors.toMap(Driver::getDriverId, d -> d));
+
+        for (Long driverId : driverIds) {
+            if (!driversById.containsKey(driverId)) {
+                throw new RuntimeException("Driver not found: " + driverId);
+            }
+        }
+
+        CascadaStandardWeek week = weekRepository
+                .findByPlantPlantIdAndWeekStartDateAndShiftId(
+                        plant.getPlantId(),
+                        request.getWeekDate(),
+                        request.getShiftId()
+                )
+                .orElse(null);
+
+        LocalDateTime now = LocalDateTime.now();
+        if (week == null) {
+            week = new CascadaStandardWeek();
+            week.setPlant(plant);
+            week.setWeekStartDate(request.getWeekDate());
+            week.setShiftId(request.getShiftId());
+        }
+
+        week.setStatus(CascadaStatus.DRAFT);
+        week.setUpdatedAt(now);
+        week.setUpdatedByUserId(null);
+        week.setSentAt(null);
+        week.setSentByUserId(null);
+        week = weekRepository.save(week);
+
+        Map<String, List<CascadaRowDTO>> normalizedDays = new LinkedHashMap<>();
+        for (var entry : request.getDays().entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            String normalizedKey = entry.getKey().trim().toLowerCase();
+            if (normalizedKey.isBlank()) {
+                continue;
+            }
+            List<CascadaRowDTO> rows = entry.getValue() == null ? List.of() : entry.getValue();
+            normalizedDays.computeIfAbsent(normalizedKey, k -> new ArrayList<>()).addAll(rows);
+        }
+
+        if (!normalizedDays.isEmpty()) {
+            log.info("Days keys normalizados para borrar: {}", normalizedDays.keySet());
+            cellRepository.deleteByWeekAndDayKeyIn(week, normalizedDays.keySet());
+            cellRepository.flush();
+        }
+
+        List<CascadaStandardCell> cells = new ArrayList<>();
+        for (var entry : normalizedDays.entrySet()) {
+            String dayKey = entry.getKey();
+            List<CascadaRowDTO> rows = entry.getValue();
+            Map<String, CascadaRowDTO> dedupedRows = new LinkedHashMap<>();
+            for (CascadaRowDTO row : rows) {
+                if (row == null || row.getDriverId() == null) {
+                    continue;
+                }
+                Long routeId = row.getRouteId();
+                String key = row.getDriverId() + "|" + (routeId == null ? "null" : routeId.toString());
+                dedupedRows.put(key, row);
+            }
+            for (CascadaRowDTO row : dedupedRows.values()) {
+                CascadaStandardCell cell = new CascadaStandardCell();
+                cell.setWeek(week);
+                cell.setDayKey(dayKey);
+                cell.setDriver(driversById.get(row.getDriverId()));
+                cell.setRouteId(row.getRouteId());
+                cell.setE(normalizeValue(row.getE()));
+                cell.setS(normalizeValue(row.getS()));
+                cell.setEte(normalizeValue(row.getEte()));
+                cell.setSte(normalizeValue(row.getSte()));
+                cell.setDriverNameOverride(normalizeValue(row.getDriverNameOverride()));
+                log.info(
+                        "Insertando -> dayKey: {}, driverId: {}, routeId: {}",
+                        dayKey,
+                        cell.getDriver().getDriverId(),
+                        cell.getRouteId()
+                );
+                cells.add(cell);
+            }
+        }
+        cellRepository.saveAll(cells);
+    }
+
+    @Override
+    @Transactional
+    public void updateCascadaStatus(
+            Long plantId,
+            LocalDate weekStartDate,
+            String shiftId,
+            String dayKey,
+            String status,
+            Long userId,
+            List<Long> recipientUserIds
+    ) {
+        if (plantId == null) {
+            throw new RuntimeException("plantId is required");
+        }
+        if (weekStartDate == null) {
+            throw new RuntimeException("weekStartDate is required");
+        }
+        if (shiftId == null || shiftId.isBlank()) {
+            throw new RuntimeException("shiftId is required");
+        }
+        if (dayKey != null && dayKey.isBlank()) {
+            dayKey = null;
+        }
+        if (status == null || status.isBlank()) {
+            throw new RuntimeException("status is required");
+        }
+
+        CascadaStatus targetStatus;
+        try {
+            targetStatus = CascadaStatus.valueOf(status);
+        } catch (IllegalArgumentException ex) {
+            throw new RuntimeException("Invalid status: " + status);
+        }
+
+        if (targetStatus != CascadaStatus.SENT && targetStatus != CascadaStatus.DELETED) {
+            throw new RuntimeException("status must be SENT or DELETED");
+        }
+
+        CascadaStandardWeek week = weekRepository
+                .findByPlantPlantIdAndWeekStartDateAndShiftId(plantId, weekStartDate, shiftId)
+                .orElse(null);
+
+        if (week == null) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (targetStatus == CascadaStatus.SENT) {
+            if (recipientUserIds == null || recipientUserIds.isEmpty()) {
+                throw new RuntimeException("recipientUserIds is required");
+            }
+            week.setSentAt(week.getSentAt() == null ? now : week.getSentAt());
+            week.setSentByUserId(week.getSentByUserId() == null ? userId : week.getSentByUserId());
+        }
+        week.setStatus(targetStatus);
+        week.setUpdatedAt(now);
+        week.setUpdatedByUserId(userId);
+        weekRepository.save(week);
+
+        if (targetStatus == CascadaStatus.SENT) {
+            Plant plant = plantRepository.findById(plantId)
+                    .orElseThrow(() -> new RuntimeException("Plant not found"));
+
+            if (dayKey == null) {
+                cascadaRecipientRepository.deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndCascadaType(
+                        plantId,
+                        weekStartDate,
+                        shiftId,
+                        CascadaType.STANDARD
+                );
+            } else {
+                cascadaRecipientRepository.deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndDayKeyAndCascadaType(
+                        plantId,
+                        weekStartDate,
+                        shiftId,
+                        dayKey,
+                        CascadaType.STANDARD
+                );
+            }
+
+            List<CascadaRecipient> recipients = new ArrayList<>();
+            for (Long recipientUserId : recipientUserIds) {
+                CascadaRecipient recipient = new CascadaRecipient();
+                recipient.setPlant(plant);
+                recipient.setWeekStartDate(weekStartDate);
+                recipient.setShiftId(shiftId);
+                recipient.setDayKey(dayKey);
+                recipient.setCascadaType(CascadaType.STANDARD);
+                recipient.setRecipientUserId(recipientUserId);
+                recipient.setSentAt(now);
+                recipient.setSentByUserId(userId);
+                recipients.add(recipient);
+            }
+            cascadaRecipientRepository.saveAll(recipients);
+
+            publishInboxMessagesForStatus(targetStatus.name(), plantId, weekStartDate, recipientUserIds);
+            return;
+        }
+
+        publishInboxMessagesForStatus(
+                targetStatus.name(),
+                plantId,
+                weekStartDate,
+                recipientUserIdsFor(plantId, weekStartDate, shiftId, dayKey)
+        );
+    }
+
+    @Override
+    public CascadaWeekResponseDTO getWeekCascadas(Long plantId, LocalDate weekStartDate, String status) {
+        if (plantId == null) {
+            throw new RuntimeException("plantId is required");
+        }
+        if (weekStartDate == null) {
+            throw new RuntimeException("weekStartDate is required");
+        }
+        if (status == null || status.isBlank()) {
+            throw new RuntimeException("status is required");
+        }
+
+        CascadaStatus cascadaStatus;
+        try {
+            cascadaStatus = CascadaStatus.valueOf(status);
+        } catch (IllegalArgumentException ex) {
+            throw new RuntimeException("Invalid status: " + status);
+        }
+
+        List<CascadaStandardWeek> weeks = weekRepository
+                .findByPlantPlantIdAndWeekStartDateAndStatus(plantId, weekStartDate, cascadaStatus);
+
+        List<CascadaWeekItemDTO> items = new ArrayList<>();
+        for (CascadaStandardWeek week : weeks) {
+            Map<String, Map<Long, CascadaRowDTO>> byDay = new HashMap<>();
+            List<CascadaStandardCell> cells = cellRepository.findByWeek(week);
+            Map<Long, Driver> driversById = loadDrivers(cells);
+            Map<Long, DriverPlantAssignment> assignmentsByDriverId = loadAssignmentsByPlant(plantId);
+            Map<Long, Route> routesById = loadRoutes(cells);
+            for (CascadaStandardCell cell : cells) {
+                byDay.computeIfAbsent(cell.getDayKey(), k -> new HashMap<>());
+                CascadaRowDTO row = toRowDTO(cell);
+                Route route = cell.getRouteId() == null ? null : routesById.get(cell.getRouteId());
+                enrichRow(
+                        row,
+                        driversById.get(cell.getDriver().getDriverId()),
+                        assignmentsByDriverId.get(cell.getDriver().getDriverId()),
+                        route
+                );
+                byDay.get(cell.getDayKey()).put(cell.getDriver().getDriverId(), row);
+            }
+            for (var entry : byDay.entrySet()) {
+                Long shiftIdValue = parseShiftId(week.getShiftId());
+                items.add(new CascadaWeekItemDTO(
+                        shiftIdValue,
+                        entry.getKey(),
+                        new ArrayList<>(entry.getValue().values())
+                ));
+            }
+        }
+
+        CascadaWeekTotalsDTO totals = buildWeekTotals(plantId, items);
+        return new CascadaWeekResponseDTO(plantId, weekStartDate, status, items, totals);
+    }
+
+    @Override
+    public StandardWeeklyResponseDTO getStandardWeeklyView(Long plantId, LocalDate weekDate, String status) {
+        CascadaWeekResponseDTO weekResponse = getWeekCascadas(plantId, weekDate, status);
+        List<CascadaWeekItemDTO> items = weekResponse.getItems();
+        List<ShiftDTO> shiftList = shiftService.getShiftsByPlant(plantId);
+        Map<Long, StandardWeeklyShiftDTO> shifts = new LinkedHashMap<>();
+
+        for (ShiftDTO shift : shiftList) {
+            Map<String, List<StandardWeeklyRowDTO>> days = new LinkedHashMap<>();
+            if (shift.getDayKeys() != null) {
+                for (String dayKey : shift.getDayKeys()) {
+                    if (dayKey == null || dayKey.isBlank()) {
+                        continue;
+                    }
+                    days.put(dayKey.trim().toLowerCase(), new ArrayList<>());
+                }
+            }
+            shifts.put(
+                    shift.getShiftId(),
+                    new StandardWeeklyShiftDTO(shift.getShiftId(), shift.getShiftName(), days)
+            );
+        }
+
+        for (CascadaWeekItemDTO item : items) {
+            Long shiftId = item.getShiftId();
+            StandardWeeklyShiftDTO shiftDTO = shifts.computeIfAbsent(
+                    shiftId,
+                    k -> new StandardWeeklyShiftDTO(k, null, new LinkedHashMap<>())
+            );
+
+            Map<String, List<StandardWeeklyRowDTO>> days = shiftDTO.getDays();
+            List<StandardWeeklyRowDTO> rows = item.getRows().stream()
+                    .map(this::toStandardWeeklyRow)
+                    .toList();
+            String dayKey = item.getDayKey() == null ? null : item.getDayKey().trim().toLowerCase();
+            if (dayKey == null || dayKey.isBlank()) {
+                continue;
+            }
+            days.put(dayKey, rows);
+        }
+
+        return new StandardWeeklyResponseDTO(
+                plantId,
+                weekDate,
+                status,
+                List.copyOf(shifts.values())
+        );
+    }
+
+    @Override
+    public List<CascadaSummaryDTO> getCascadaStandardSummaries(
+            String status,
+            Long plantId,
+            LocalDate weekStartDate,
+            Long recipientUserId
+    ) {
+        String effectiveStatus = (status == null || status.isBlank()) ? CascadaStatus.SENT.name() : status;
+        CascadaStatus cascadaStatus;
+        try {
+            cascadaStatus = CascadaStatus.valueOf(effectiveStatus);
+        } catch (IllegalArgumentException ex) {
+            throw new RuntimeException("Invalid status: " + effectiveStatus);
+        }
+
+        List<CascadaStandardWeek> weeks = weekRepository.findByStatus(cascadaStatus);
+
+        if (plantId != null) {
+            weeks = weeks.stream()
+                    .filter(week -> week.getPlant().getPlantId().equals(plantId))
+                    .toList();
+        }
+        if (weekStartDate != null) {
+            weeks = weeks.stream()
+                    .filter(week -> week.getWeekStartDate().equals(weekStartDate))
+                    .toList();
+        }
+
+        if (recipientUserId != null) {
+            List<CascadaRecipient> recipients = cascadaRecipientRepository
+                    .findByRecipientUserIdAndCascadaType(recipientUserId, CascadaType.STANDARD);
+            java.util.Set<String> allowedKeys = recipients.stream()
+                    .map(r -> r.getPlant().getPlantId() + "|" + r.getWeekStartDate() + "|" + r.getShiftId())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            weeks = weeks.stream()
+                    .filter(week -> allowedKeys.contains(
+                            week.getPlant().getPlantId() + "|" + week.getWeekStartDate() + "|" + week.getShiftId()
+                    ))
+                    .toList();
+        }
+
+        java.util.Map<String, List<CascadaStandardWeek>> grouped = weeks.stream()
+                .collect(java.util.stream.Collectors.groupingBy(week ->
+                        week.getPlant().getPlantId() + "|" + week.getWeekStartDate()
+                ));
+
+        List<CascadaSummaryDTO> summaries = new ArrayList<>();
+        for (var entry : grouped.entrySet()) {
+            List<CascadaStandardWeek> groupWeeks = entry.getValue();
+            CascadaStandardWeek latest = groupWeeks.stream()
+                    .filter(d -> d.getSentAt() != null)
+                    .max(java.util.Comparator.comparing(CascadaStandardWeek::getSentAt))
+                    .orElse(groupWeeks.get(0));
+
+            java.util.Set<String> shiftIds = groupWeeks.stream()
+                    .map(CascadaStandardWeek::getShiftId)
+                    .collect(java.util.stream.Collectors.toSet());
+            java.util.Set<String> dayKeys = new java.util.HashSet<>();
+            for (CascadaStandardWeek week : groupWeeks) {
+                List<CascadaStandardCell> cells = cellRepository.findByWeek(week);
+                for (CascadaStandardCell cell : cells) {
+                    if (cell.getDayKey() != null) {
+                        dayKeys.add(cell.getDayKey());
+                    }
+                }
+            }
+
+            String sentBy = null;
+            if (latest.getSentByUserId() != null) {
+                User user = userRepository.findById(latest.getSentByUserId()).orElse(null);
+                if (user != null) {
+                    sentBy = user.getUserName();
+                }
+            }
+
+            summaries.add(new CascadaSummaryDTO(
+                    latest.getCascadaStandardWeekId(),
+                    stableCascadaId(latest.getPlant().getPlantId(), latest.getWeekStartDate()),
+                    latest.getPlant().getPlantId(),
+                    latest.getPlant().getPlantName(),
+                    latest.getPlant().getCompany().getCompanyId(),
+                    latest.getPlant().getCompany().getCompanyName(),
+                    sentBy,
+                    latest.getWeekStartDate(),
+                    shiftIds,
+                    dayKeys,
+                    latest.getSentAt()
+            ));
+        }
+
+        summaries.sort(java.util.Comparator.comparing(
+                CascadaSummaryDTO::getSentAt,
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())
+        ).reversed());
+
+        return summaries;
+    }
+
+    private CascadaRowDTO toRowDTO(CascadaStandardCell cell) {
+        CascadaRowDTO row = new CascadaRowDTO();
+        row.setDriverId(cell.getDriver().getDriverId());
+        row.setRouteId(cell.getRouteId());
+        row.setE(cell.getE());
+        row.setS(cell.getS());
+        row.setEte(cell.getEte());
+        row.setSte(cell.getSte());
+        row.setDriverNameOverride(cell.getDriverNameOverride());
+        return row;
+    }
+
+    private void enrichRow(
+            CascadaRowDTO row,
+            Driver driver,
+            DriverPlantAssignment assignment,
+            Route route
+    ) {
+        if (driver != null) {
+            row.setDriverName(driver.getDriverName());
+            row.setLastName(driver.getLastName());
+        }
+        if (route != null) {
+            row.setRouteName(route.getRouteName());
+        } else if (assignment != null && assignment.getRoute() != null) {
+            row.setRouteName(assignment.getRoute().getRouteName());
+        }
+    }
+
+    private Map<Long, Driver> loadDrivers(List<CascadaStandardCell> cells) {
+        List<Long> driverIds = cells.stream()
+                .map(cell -> cell.getDriver().getDriverId())
+                .distinct()
+                .toList();
+        return driverRepository.findAllById(driverIds).stream()
+                .collect(Collectors.toMap(Driver::getDriverId, d -> d));
+    }
+
+    private Map<Long, DriverPlantAssignment> loadAssignmentsByPlant(Long plantId) {
+        return driverPlantAssignmentRepository.findByPlantPlantId(plantId).stream()
+                .collect(Collectors.toMap(
+                        assignment -> assignment.getDriver().getDriverId(),
+                        assignment -> assignment,
+                        (a, b) -> a
+                ));
+    }
+
+    private Map<Long, Route> loadRoutes(List<CascadaStandardCell> cells) {
+        List<Long> routeIds = cells.stream()
+                .map(CascadaStandardCell::getRouteId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (routeIds.isEmpty()) {
+            return Map.of();
+        }
+        return routeRepository.findAllById(routeIds).stream()
+                .collect(Collectors.toMap(Route::getRouteId, r -> r));
+    }
+
+    private String normalizeValue(String value) {
+        return value == null ? "" : value;
+    }
+
+    private Long parseShiftId(String shiftId) {
+        if (shiftId == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(shiftId);
+        } catch (NumberFormatException ex) {
+            throw new RuntimeException("Invalid shiftId stored: " + shiftId);
+        }
+    }
+
+    private CascadaWeekTotalsDTO buildWeekTotals(Long plantId, List<CascadaWeekItemDTO> items) {
+        Map<Long, Integer> byDriver = new HashMap<>();
+        Map<Long, Integer> byRoute = new HashMap<>();
+        Map<String, Integer> byDay = new LinkedHashMap<>();
+        Map<String, Integer> byShift = new HashMap<>();
+        Map<String, Integer> byDriverType = new HashMap<>();
+        Map<String, Integer> byColumn = new LinkedHashMap<>();
+
+        byColumn.put("E", 0);
+        byColumn.put("S", 0);
+        byColumn.put("ETE", 0);
+        byColumn.put("STE", 0);
+
+        for (String dayKey : List.of("lun", "mar", "mie", "jue", "vie", "sab", "dom")) {
+            byDay.put(dayKey, 0);
+        }
+
+        Map<Long, DriverType> driverTypes = driverPlantAssignmentRepository.findByPlantPlantId(plantId).stream()
+                .collect(Collectors.toMap(
+                        assignment -> assignment.getDriver().getDriverId(),
+                        DriverPlantAssignment::getDriverType,
+                        (a, b) -> a
+                ));
+
+        int weekTotal = 0;
+
+        for (CascadaWeekItemDTO item : items) {
+            String dayKey = item.getDayKey();
+            String shiftKey = item.getShiftId() == null ? "UNKNOWN" : item.getShiftId().toString();
+            for (CascadaRowDTO row : item.getRows()) {
+                int rowCount = 0;
+                rowCount += countColumn(row.getE(), "E", byColumn);
+                rowCount += countColumn(row.getS(), "S", byColumn);
+                rowCount += countColumn(row.getEte(), "ETE", byColumn);
+                rowCount += countColumn(row.getSte(), "STE", byColumn);
+
+                if (rowCount == 0) {
+                    continue;
+                }
+
+                weekTotal += rowCount;
+                addLongCount(byDriver, row.getDriverId(), rowCount);
+                addLongCount(byRoute, row.getRouteId(), rowCount);
+                addStringCount(byDay, dayKey, rowCount);
+                addStringCount(byShift, shiftKey, rowCount);
+
+                DriverType driverType = driverTypes.get(row.getDriverId());
+                String driverTypeKey = driverType == null ? "UNKNOWN" : driverType.name();
+                addStringCount(byDriverType, driverTypeKey, rowCount);
+            }
+        }
+
+        return new CascadaWeekTotalsDTO(
+                byDriver,
+                byRoute,
+                byDay,
+                byShift,
+                byDriverType,
+                byColumn,
+                weekTotal
+        );
+    }
+
+    private int countColumn(
+            String value,
+            String columnKey,
+            Map<String, Integer> byColumn
+    ) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        addStringCount(byColumn, columnKey, 1);
+        return 1;
+    }
+
+    private void addLongCount(Map<Long, Integer> totals, Long key, int count) {
+        if (key == null || count == 0) {
+            return;
+        }
+        totals.put(key, totals.getOrDefault(key, 0) + count);
+    }
+
+    private void addStringCount(Map<String, Integer> totals, String key, int count) {
+        if (key == null || key.isBlank() || count == 0) {
+            return;
+        }
+        totals.put(key, totals.getOrDefault(key, 0) + count);
+    }
+
+    private void publishInboxMessagesForStatus(
+            String status,
+            Long plantId,
+            LocalDate weekStartDate,
+            List<Long> recipientUserIds
+    ) {
+        if (recipientUserIds == null || recipientUserIds.isEmpty()) {
+            return;
+        }
+
+        for (Long recipientUserId : recipientUserIds) {
+            List<CascadaSummaryDTO> summaries = getCascadaStandardSummaries(
+                    status,
+                    plantId,
+                    weekStartDate,
+                    recipientUserId
+            );
+            if (summaries.isEmpty()) {
+                continue;
+            }
+
+            CascadaSummaryDTO summary = summaries.get(0);
+            String weekStart = summary.getWeekDate().toString();
+            String sentAtValue = summary.getSentAt() == null ? null : summary.getSentAt().toString();
+
+            String title = summary.getPlantName();
+            String subtitle = "Semana " + weekStart;
+            String fileName = "Cascada_" + summary.getPlantName() + "_" + weekStart + ".xlsx";
+            String sheetTitle = summary.getPlantName();
+
+            InboxMessageDTO payload = new InboxMessageDTO(
+                    summary.getId(),
+                    summary.getCascadaId(),
+                    title,
+                    subtitle,
+                    sentAtValue,
+                    sentAtValue,
+                    fileName,
+                    sheetTitle,
+                    summary.getCompanyName(),
+                    summary.getSentBy(),
+                    summary.getPlantId(),
+                    weekStart,
+                    weekStart,
+                    summary.getShiftIds().stream().toList(),
+                    summary.getDayKeys().stream().toList(),
+                    status
+            );
+
+            messagingTemplate.convertAndSend("/topic/inbox/" + recipientUserId, payload);
+        }
+    }
+
+    private List<Long> recipientUserIdsFor(
+            Long plantId,
+            LocalDate weekStartDate,
+            String shiftId,
+            String dayKey
+    ) {
+        if (dayKey == null || dayKey.isBlank()) {
+            return cascadaRecipientRepository.findRecipientUserIdsByShift(
+                    plantId,
+                    weekStartDate,
+                    shiftId,
+                    CascadaType.STANDARD
+            );
+        }
+        return cascadaRecipientRepository.findRecipientUserIdsByDayKey(
+                plantId,
+                weekStartDate,
+                shiftId,
+                dayKey,
+                CascadaType.STANDARD
+        );
+    }
+
+    private String stableCascadaId(Long plantId, LocalDate weekStartDate) {
+        return plantId + "-" + weekStartDate;
+    }
+
+    private StandardWeeklyRowDTO toStandardWeeklyRow(CascadaRowDTO row) {
+        StandardWeeklyRowDTO dto = new StandardWeeklyRowDTO();
+        dto.setDriverId(row.getDriverId());
+        dto.setDriverName(row.getDriverName());
+        dto.setLastName(row.getLastName());
+        dto.setDriverNameOverride(row.getDriverNameOverride());
+        dto.setRouteId(row.getRouteId());
+        dto.setRouteName(row.getRouteName());
+        dto.setE(row.getE());
+        dto.setS(row.getS());
+        dto.setEte(row.getEte());
+        dto.setSte(row.getSte());
+        dto.setTotal(countRowTotal(row));
+        return dto;
+    }
+
+    private int countRowTotal(CascadaRowDTO row) {
+        int total = 0;
+        if (isFilled(row.getE())) {
+            total += 1;
+        }
+        if (isFilled(row.getS())) {
+            total += 1;
+        }
+        if (isFilled(row.getEte())) {
+            total += 1;
+        }
+        if (isFilled(row.getSte())) {
+            total += 1;
+        }
+        return total;
+    }
+
+    private boolean isFilled(String value) {
+        return value != null && !value.isBlank();
+    }
+}

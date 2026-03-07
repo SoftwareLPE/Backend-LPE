@@ -1,5 +1,7 @@
 package com.example.backend_sistema_LPE.controller;
 
+import com.example.backend_sistema_LPE.dto.CompanyDetailDTO;
+import com.example.backend_sistema_LPE.mapper.CompanyMapper;
 import com.example.backend_sistema_LPE.model.Company;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
 import com.example.backend_sistema_LPE.service.CompanyVisibilityService;
@@ -22,10 +24,12 @@ public class UserVisibilityController {
 
     //Endpoint que muestra las compañias correspondientes segun fueran asignadas
     @GetMapping("/companies")
-    public List<Company> myCompanies(Authentication authentication){;
+    public List<CompanyDetailDTO> myCompanies(Authentication authentication){;
 
         UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
         System.out.println("JWT userId=" + principal.getUserId() + " auth=" + principal.getAuthorities());
-        return companyVisibilityService.getMyCompanies(principal);
+        return companyVisibilityService.getMyCompanies(principal).stream()
+                .map(CompanyMapper::toDetailDTO)
+                .toList();
     }
 }

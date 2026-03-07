@@ -1,7 +1,9 @@
 package com.example.backend_sistema_LPE.service;
 
 import com.example.backend_sistema_LPE.dto.CreateDriverWithRouteDTO;
+import com.example.backend_sistema_LPE.dto.DriverShiftDTO;
 import com.example.backend_sistema_LPE.dto.DriverViewDTO;
+import com.example.backend_sistema_LPE.enums.DriverType;
 import com.example.backend_sistema_LPE.model.Driver;
 import com.example.backend_sistema_LPE.model.DriverRoute;
 import com.example.backend_sistema_LPE.model.Plant;
@@ -65,6 +67,8 @@ public class DriverServiceImpl implements DriverService {
                             d.getActive(),
                             d.getShifts().stream().map(Shift::getShiftId).collect(java.util.stream.Collectors.toSet()),
                             r != null ? r.getRouteName() : null,
+                            r != null ? r.getLocation() : null,
+                            r != null ? r.getUnitType() : null,
                             a.getDriverType()
                     );
                 })
@@ -101,10 +105,28 @@ public class DriverServiceImpl implements DriverService {
 
         driverRepository.save(driver);
 
-        Route route = routeRepository.findById(driverCreateDTO.getRouteId())
-                .orElseThrow(() -> new RuntimeException("Route not found"));
-        if (!route.getPlant().getPlantId().equals(plant.getPlantId())) {
-            throw new RuntimeException("Route does not belong to plant");
+        DriverType type = driverCreateDTO.getDriverType();
+        Route route = null;
+        if (driverCreateDTO.getRouteId() != null) {
+            route = routeRepository.findById(driverCreateDTO.getRouteId())
+                    .orElseThrow(() -> new RuntimeException("Route not found"));
+            if (!route.getPlant().getPlantId().equals(plant.getPlantId())) {
+                throw new RuntimeException("Route does not belong to plant");
+            }
+        } else if (driverCreateDTO.getRouteName() != null && !driverCreateDTO.getRouteName().isBlank()) {
+            String routeName = driverCreateDTO.getRouteName().trim();
+            route = routeRepository.findByRouteNameAndPlantPlantId(routeName, plant.getPlantId())
+                    .orElseGet(() -> {
+                        Route newRoute = new Route();
+                        newRoute.setRouteName(routeName);
+                        newRoute.setLocation(trimToNull(driverCreateDTO.getRouteLocation()));
+                        newRoute.setPlant(plant);
+                        return routeRepository.save(newRoute);
+                    });
+        } else {
+            if (type == DriverType.TITULAR) {
+                throw new RuntimeException("Un chofer TITULAR debe tener un recorrido (routeId o routeName).");
+            }
         }
         // Permit same route to be assigned to multiple drivers.
 
@@ -121,6 +143,14 @@ public class DriverServiceImpl implements DriverService {
         assignment.setRoute(route);
         assignment.setDriverType(driverCreateDTO.getDriverType());
         driverPlantAssignmentRepository.save(assignment);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
 
@@ -191,17 +221,22 @@ public class DriverServiceImpl implements DriverService {
                                 d.getActive(),
                                 d.getShifts().stream().map(Shift::getShiftId).collect(java.util.stream.Collectors.toSet()),
                                 null,
+                                null,
+                                null,
                                 null
                         ));
                     }
                     DriverPlantAssignment assignment = plantAssignment.get();
+                    Route route = assignment.getRoute();
                     return java.util.stream.Stream.of(new DriverViewDTO(
                             d.getDriverId(),
                             d.getDriverName(),
                             d.getLastName(),
                             d.getActive(),
                             d.getShifts().stream().map(Shift::getShiftId).collect(java.util.stream.Collectors.toSet()),
-                            assignment.getRoute() != null ? assignment.getRoute().getRouteName() : null,
+                            route != null ? route.getRouteName() : null,
+                            route != null ? route.getLocation() : null,
+                            route != null ? route.getUnitType() : null,
                             assignment.getDriverType()
                     ));
                 })
@@ -210,6 +245,48 @@ public class DriverServiceImpl implements DriverService {
                         java.util.Comparator.nullsLast(String::compareToIgnoreCase)
                 ))
                 .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
+    public List<DriverShiftDTO> getDriversByShiftWithRoute(Long shiftId, Long plantId, Boolean active) {
+        if (shiftId == null) {
+            throw new RuntimeException("shiftId is required");
+        }
+        if (plantId == null) {
+            throw new RuntimeException("plantId is required");
+        }
+
+        List<Driver> drivers = driverRepository.findByShiftsShiftId(shiftId);
+
+        return drivers.stream()
+                .filter(d -> active == null || active.equals(d.getActive()))
+                .map(d -> {
+                    java.util.Optional<DriverPlantAssignment> plantAssignment =
+                            driverPlantAssignmentRepository.findByDriverDriverIdAndPlantPlantId(
+                                    d.getDriverId(),
+                                    plantId
+                            );
+                    Route route = plantAssignment.map(DriverPlantAssignment::getRoute).orElse(null);
+                    String driverType = plantAssignment.map(a -> a.getDriverType() == null ? null : a.getDriverType().name())
+                            .orElse(null);
+
+                    return new DriverShiftDTO(
+                            d.getDriverId(),
+                            d.getDriverName(),
+                            d.getLastName(),
+                            driverType,
+                            d.getShifts().stream().map(Shift::getShiftId).collect(java.util.stream.Collectors.toList()),
+                            route != null ? route.getRouteId() : null,
+                            route != null ? route.getRouteName() : null,
+                            route != null ? route.getLocation() : null,
+                            route != null ? route.getUnitType() : null
+                    );
+                })
+                .sorted(java.util.Comparator.comparing(
+                        DriverShiftDTO::getRouteName,
+                        java.util.Comparator.nullsLast(String::compareToIgnoreCase)
+                ))
+                .collect(Collectors.toList());
     }
 }
 

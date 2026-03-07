@@ -17,4 +17,5 @@ public class CascadaWeekResponseDTO {
     private LocalDate weekStartDate;
     private String status;
     private List<CascadaWeekItemDTO> items;
+    private CascadaWeekTotalsDTO totals;
 }

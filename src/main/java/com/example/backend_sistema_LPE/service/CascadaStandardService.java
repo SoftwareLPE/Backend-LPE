@@ -3,30 +3,15 @@ package com.example.backend_sistema_LPE.service;
 import com.example.backend_sistema_LPE.dto.CascadaResponseDTO;
 import com.example.backend_sistema_LPE.dto.CascadaSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.CascadaWeekResponseDTO;
+import com.example.backend_sistema_LPE.dto.StandardWeeklyResponseDTO;
 
 import java.time.LocalDate;
+import java.util.List;
 
-public interface CascadaService {
+public interface CascadaStandardService {
     CascadaResponseDTO getCascada(Long plantId, LocalDate weekStartDate, String shiftId, String dayKey, String status);
 
     void saveCascada(CascadaSaveRequestDTO request);
-
-    void sendCascada(
-            Long plantId,
-            LocalDate weekStartDate,
-            String shiftId,
-            String dayKey,
-            Long userId,
-            java.util.List<Long> recipientUserIds
-    );
-
-    void deleteCascada(
-            Long plantId,
-            LocalDate weekStartDate,
-            String shiftId,
-            String dayKey,
-            Long userId
-    );
 
     void updateCascadaStatus(
             Long plantId,
@@ -35,12 +20,14 @@ public interface CascadaService {
             String dayKey,
             String status,
             Long userId,
-            java.util.List<Long> recipientUserIds
+            List<Long> recipientUserIds
     );
 
     CascadaWeekResponseDTO getWeekCascadas(Long plantId, LocalDate weekStartDate, String status);
 
-    java.util.List<com.example.backend_sistema_LPE.dto.CascadaSummaryDTO> getCascadaSummaries(
+    StandardWeeklyResponseDTO getStandardWeeklyView(Long plantId, LocalDate weekStartDate, String status);
+
+    java.util.List<com.example.backend_sistema_LPE.dto.CascadaSummaryDTO> getCascadaStandardSummaries(
             String status,
             Long plantId,
             LocalDate weekStartDate,

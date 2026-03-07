@@ -14,7 +14,12 @@ public class CompanyMapper {
     }
 
     public static PlantDTO toPlantDTO(Plant p) {
-        return new PlantDTO(p.getPlantId(), p.getPlantName());
+        return new PlantDTO(
+                p.getPlantId(),
+                p.getPlantName(),
+                p.getFormatCatalogId(),
+                p.getFormatTypeId()
+        );
     }
 
     public static CompanyDetailDTO toDetailDTO(Company c) {

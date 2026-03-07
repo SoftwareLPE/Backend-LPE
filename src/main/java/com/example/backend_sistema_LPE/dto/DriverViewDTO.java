@@ -17,6 +17,8 @@ public class DriverViewDTO {
 
 //    private Long routeId;
     private String routeName;
+    private String routeLocation;
+    private String unitType;
 
     private DriverType driverType;
 //    private String shift;

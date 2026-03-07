@@ -14,4 +14,5 @@ public class CascadaStatusUpdateRequestDTO {
     private String dayKey;
     private String status;
     private List<Long> recipientUserIds;
+    private Long formatTypeId;
 }

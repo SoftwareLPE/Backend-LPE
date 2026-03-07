@@ -10,6 +10,6 @@ import lombok.NoArgsConstructor;
 public class PlantDTO {
     private Long plantId;
     private String plantName;
-
-
+    private Long formatCatalogId;
+    private Long formatTypeId;
 }

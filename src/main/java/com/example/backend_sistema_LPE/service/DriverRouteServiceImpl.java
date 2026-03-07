@@ -84,6 +84,10 @@ public class DriverRouteServiceImpl implements DriverRouteService {
             if (!route.getPlant().getPlantId().equals(plant.getPlantId())) {
                 throw new RuntimeException("Route does not belong to plant");
             }
+            if (createDriverWithRouteDTO.getUnitType() != null) {
+                route.setUnitType(trimToNull(createDriverWithRouteDTO.getUnitType()));
+                routeRepository.save(route);
+            }
 
         } else {
             // No hay routeId, vemos el nombre de la ruta
@@ -95,9 +99,15 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                         .orElseGet(() -> {
                             Route newRoute = new Route();
                             newRoute.setRouteName(routeName);
+                            newRoute.setLocation(trimToNull(createDriverWithRouteDTO.getRouteLocation()));
+                            newRoute.setUnitType(trimToNull(createDriverWithRouteDTO.getUnitType()));
                             newRoute.setPlant(plant);
                             return routeRepository.save(newRoute);
                         });
+                if (createDriverWithRouteDTO.getUnitType() != null) {
+                    route.setUnitType(trimToNull(createDriverWithRouteDTO.getUnitType()));
+                    routeRepository.save(route);
+                }
 
             } else {
                 // No hay ni routeId ni routeName
@@ -201,6 +211,13 @@ public class DriverRouteServiceImpl implements DriverRouteService {
             if (!route.getPlant().getPlantId().equals(targetPlantId)) {
                 throw new RuntimeException("Route does not belong to driver's plant");
             }
+            if (updateDriverDTO.getRouteLocation() != null) {
+                route.setLocation(trimToNull(updateDriverDTO.getRouteLocation()));
+            }
+            if (updateDriverDTO.getUnitType() != null) {
+                route.setUnitType(trimToNull(updateDriverDTO.getUnitType()));
+            }
+            routeRepository.save(route);
 
         } else if (dtowithRouteName) {
             String routeName = updateDriverDTO.getRouteName().trim();
@@ -208,10 +225,16 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                     .orElseGet(() -> {
                         Route newRoute = new Route();
                         newRoute.setRouteName(routeName);
+                        newRoute.setLocation(trimToNull(updateDriverDTO.getRouteLocation()));
+                        newRoute.setUnitType(trimToNull(updateDriverDTO.getUnitType()));
                         newRoute.setPlant(plantRepository.findById(targetPlantId)
                                 .orElseThrow(() -> new RuntimeException("Plant not found")));
                         return routeRepository.save(newRoute);
                     });
+            if (updateDriverDTO.getUnitType() != null) {
+                route.setUnitType(trimToNull(updateDriverDTO.getUnitType()));
+                routeRepository.save(route);
+            }
 
         } else {
             // No mandaron routeId ni routeName:
@@ -255,6 +278,12 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                 : null;
 
 
+        String routeLocationOut = (savedAssignment.getRoute() != null)
+                ? savedAssignment.getRoute().getLocation()
+                : null;
+        String unitTypeOut = (savedAssignment.getRoute() != null)
+                ? savedAssignment.getRoute().getUnitType()
+                : null;
         return new DriverViewDTO(
                 driver.getDriverId(),
                 driver.getDriverName(),
@@ -262,8 +291,18 @@ public class DriverRouteServiceImpl implements DriverRouteService {
                 driver.getActive(),
                 driver.getShifts().stream().map(Shift::getShiftId).collect(java.util.stream.Collectors.toSet()),
                 routeNameOut,
+                routeLocationOut,
+                unitTypeOut,
                 savedAssignment.getDriverType()
         );
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 }
 

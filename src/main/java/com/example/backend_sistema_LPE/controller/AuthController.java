@@ -58,6 +58,8 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody AuthRequest request) {
         System.out.println(">>> Entró al método /auth/login");
+        System.out.println(">>> username=" + request.getUsername());
+        System.out.println(">>> password=" + (request.getPassword() == null ? "null" : "[set]"));
 
 
 

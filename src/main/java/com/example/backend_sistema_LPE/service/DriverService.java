@@ -26,4 +26,10 @@ public interface DriverService {
     Driver updateDriverShifts(Long driverId, java.util.Set<Long> shiftIds);
 
     java.util.List<com.example.backend_sistema_LPE.dto.DriverViewDTO> getDriversByShift(Long shiftId, Boolean active);
+
+    java.util.List<com.example.backend_sistema_LPE.dto.DriverShiftDTO> getDriversByShiftWithRoute(
+            Long shiftId,
+            Long plantId,
+            Boolean active
+    );
 }

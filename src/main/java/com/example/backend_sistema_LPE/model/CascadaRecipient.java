@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import com.example.backend_sistema_LPE.enums.CascadaType;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -30,8 +31,12 @@ public class CascadaRecipient {
     @Column(name = "shift_id", nullable = false)
     private String shiftId;
 
-    @Column(name = "day_key", nullable = false)
+    @Column(name = "day_key")
     private String dayKey;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cascada_type", nullable = false)
+    private CascadaType cascadaType;
 
     @Column(name = "recipient_user_id", nullable = false)
     private Long recipientUserId;

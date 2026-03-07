@@ -25,12 +25,12 @@ public class Company {
     private Long companyId;
     private String companyName;
 
-    @OneToMany(mappedBy = "company")
+    @OneToMany(mappedBy = "company", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonManagedReference
     List<Plant> plants;
 
     @JsonIgnore
-    @OneToMany(mappedBy = "company")
+    @OneToMany(mappedBy = "company", cascade = CascadeType.REMOVE, orphanRemoval = true)
     private Set<UserCompany> userCompanies = new HashSet<>();
 
 }

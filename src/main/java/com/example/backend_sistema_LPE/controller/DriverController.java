@@ -45,14 +45,22 @@ public class DriverController {
     }
 
     @GetMapping("/by-shift/{shiftId}")
-    public ResponseEntity<List<DriverViewDTO>> getDriversByShift(
+    public ResponseEntity<?> getDriversByShift(
             @PathVariable Long shiftId,
+            @RequestParam(required = false) Long plantId,
             @RequestParam(required = false) Boolean active,
+            @RequestParam(required = false, defaultValue = "false") boolean includeRoute,
             Authentication authentication
     ) {
         boolean isAdmin = authentication != null && authentication.getAuthorities().stream()
                 .anyMatch(a -> "ROLE_ADMINISTRADOR".equals(a.getAuthority()));
         Boolean effectiveActive = isAdmin ? active : Boolean.TRUE;
+        if (includeRoute) {
+            if (plantId == null) {
+                return ResponseEntity.badRequest().body("plantId is required when includeRoute=true");
+            }
+            return ResponseEntity.ok(driverService.getDriversByShiftWithRoute(shiftId, plantId, effectiveActive));
+        }
         List<DriverViewDTO> drivers = driverService.getDriversByShift(shiftId, effectiveActive);
         return ResponseEntity.ok(drivers);
     }

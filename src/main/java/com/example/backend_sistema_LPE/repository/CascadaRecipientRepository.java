@@ -1,6 +1,7 @@
 package com.example.backend_sistema_LPE.repository;
 
 import com.example.backend_sistema_LPE.model.CascadaRecipient;
+import com.example.backend_sistema_LPE.enums.CascadaType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,17 +12,19 @@ import java.util.List;
 
 @Repository
 public interface CascadaRecipientRepository extends JpaRepository<CascadaRecipient, Long> {
-    void deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndDayKey(
+    void deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndDayKeyAndCascadaType(
             Long plantId,
             LocalDate weekStartDate,
             String shiftId,
-            String dayKey
+            String dayKey,
+            CascadaType cascadaType
     );
 
-    void deleteByPlantPlantIdAndWeekStartDateAndShiftId(
+    void deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndCascadaType(
             Long plantId,
             LocalDate weekStartDate,
-            String shiftId
+            String shiftId,
+            CascadaType cascadaType
     );
 
     @Query("""
@@ -30,12 +33,31 @@ public interface CascadaRecipientRepository extends JpaRepository<CascadaRecipie
         where rc.plant.plantId = :plantId
           and rc.weekStartDate = :weekStartDate
           and rc.shiftId = :shiftId
-          and (:dayKey is null or rc.dayKey = :dayKey)
+          and rc.cascadaType = :cascadaType
     """)
-    List<Long> findRecipientUserIds(
+    List<Long> findRecipientUserIdsByShift(
             @Param("plantId") Long plantId,
             @Param("weekStartDate") LocalDate weekStartDate,
             @Param("shiftId") String shiftId,
-            @Param("dayKey") String dayKey
+            @Param("cascadaType") CascadaType cascadaType
     );
+
+    @Query("""
+        select distinct rc.recipientUserId
+        from CascadaRecipient rc
+        where rc.plant.plantId = :plantId
+          and rc.weekStartDate = :weekStartDate
+          and rc.shiftId = :shiftId
+          and rc.dayKey = :dayKey
+          and rc.cascadaType = :cascadaType
+    """)
+    List<Long> findRecipientUserIdsByDayKey(
+            @Param("plantId") Long plantId,
+            @Param("weekStartDate") LocalDate weekStartDate,
+            @Param("shiftId") String shiftId,
+            @Param("dayKey") String dayKey,
+            @Param("cascadaType") CascadaType cascadaType
+    );
+
+    List<CascadaRecipient> findByRecipientUserIdAndCascadaType(Long recipientUserId, CascadaType cascadaType);
 }

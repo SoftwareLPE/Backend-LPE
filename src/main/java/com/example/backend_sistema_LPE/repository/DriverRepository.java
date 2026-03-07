@@ -17,4 +17,8 @@ public interface DriverRepository extends JpaRepository<Driver,Long> {
     void deleteByPlantPlantId(Long plantId);
 
     List<Driver> findByShiftsShiftId(Long shiftId);
+
+    List<Driver> findByPlantPlantId(Long plantId);
+
+    List<Driver> findByPlantPlantIdAndActiveTrue(Long plantId);
 }

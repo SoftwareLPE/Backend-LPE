@@ -6,6 +6,10 @@ import lombok.Data;
 @Data
 public class CascadaRowDTO {
     private Long driverId;
+    private String driverName;
+    private String lastName;
+    private Long routeId;
+    private String routeName;
 
     @JsonProperty("E")
     private String e;
@@ -18,4 +22,7 @@ public class CascadaRowDTO {
 
     @JsonProperty("STE")
     private String ste;
+
+    @JsonProperty("driverNameOverride")
+    private String driverNameOverride;
 }

@@ -23,7 +23,8 @@ public class Route {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long routeId;
     private String routeName;
-    private String routeType;
+    private String location;
+    private String unitType;
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "plant_id", nullable = false)
@@ -31,7 +32,7 @@ public class Route {
     private Plant plant;
 
     //Un recorrido puede tener varios driverRecorrido
-    @OneToMany(mappedBy = "route")
+    @OneToMany(mappedBy = "route", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore
     private List<DriverRoute> driverRoutes;
 }

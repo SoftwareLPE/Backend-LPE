@@ -35,25 +35,25 @@ import java.util.stream.Collectors;
 
 @Service
 public class CascadaPdfService {
-    private final CascadaService cascadaService;
+    private final CascadaStandardService cascadaStandardService;
     private final ShiftService shiftService;
     private final DriverService driverService;
     private final PlantRepository plantRepository;
 
     public CascadaPdfService(
-            CascadaService cascadaService,
+            CascadaStandardService cascadaStandardService,
             ShiftService shiftService,
             DriverService driverService,
             PlantRepository plantRepository
     ) {
-        this.cascadaService = cascadaService;
+        this.cascadaStandardService = cascadaStandardService;
         this.shiftService = shiftService;
         this.driverService = driverService;
         this.plantRepository = plantRepository;
     }
 
     public byte[] buildWeeklyPdf(Long plantId, LocalDate weekDate, String status, Boolean activeDrivers) {
-        CascadaWeekResponseDTO weekResponse = cascadaService.getWeekCascadas(plantId, weekDate, status);
+        CascadaWeekResponseDTO weekResponse = cascadaStandardService.getWeekCascadas(plantId, weekDate, status);
         List<ShiftDTO> shifts = shiftService.getShiftsByPlant(plantId);
         List<DriverViewDTO> drivers = driverService.getDriversByPlant(plantId, activeDrivers);
 
@@ -197,7 +197,7 @@ public class CascadaPdfService {
             Map<String, Map<Long, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
 
             for (DriverViewDTO driver : drivers) {
-                table.addCell(driverCell(formatDriverName(driver.getDriverName(), driver.getLastName()), cellFont));
+                table.addCell(driverCell(resolveDriverDisplayName(driver, byDay), cellFont));
                 int driverNormal = 0;
                 int driverExtra = 0;
                 for (String dayKey : orderedDays) {
@@ -414,6 +414,26 @@ public class CascadaPdfService {
         PdfPCell cell = bodyCell(text, font);
         cell.setHorizontalAlignment(Element.ALIGN_LEFT);
         return cell;
+    }
+
+    private String resolveDriverDisplayName(
+            DriverViewDTO driver,
+            Map<String, Map<Long, CascadaRowDTO>> byDay
+    ) {
+        if (byDay == null || byDay.isEmpty()) {
+            return formatDriverName(driver.getDriverName(), driver.getLastName());
+        }
+        for (Map<Long, CascadaRowDTO> dayRows : byDay.values()) {
+            CascadaRowDTO row = dayRows.get(driver.getDriverId());
+            if (row == null) {
+                continue;
+            }
+            String override = row.getDriverNameOverride();
+            if (override != null && !override.isBlank()) {
+                return override;
+            }
+        }
+        return formatDriverName(driver.getDriverName(), driver.getLastName());
     }
 
     private float[] buildShiftTableWidths(int dayCount, int extraColumns) {

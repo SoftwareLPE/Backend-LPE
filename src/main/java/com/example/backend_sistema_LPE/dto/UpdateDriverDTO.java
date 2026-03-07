@@ -15,6 +15,8 @@ public class UpdateDriverDTO {
     private DriverType driverType;
     private Long routeId;
     private String routeName;
+    private String routeLocation;
+    private String unitType;
     private java.util.Set<Long> shiftIds;
     private Long plantId;
 

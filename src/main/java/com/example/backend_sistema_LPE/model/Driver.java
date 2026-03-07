@@ -28,7 +28,7 @@ public class Driver {
     private Boolean active;
 
 
-    @OneToMany(mappedBy = "driver")
+    @OneToMany(mappedBy = "driver", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore
     private List<DriverRoute> driverRoutes;
 
@@ -47,7 +47,7 @@ public class Driver {
     @JsonIgnore
     private Set<Shift> shifts = new HashSet<>();
 
-    @OneToMany(mappedBy = "driver")
+    @OneToMany(mappedBy = "driver", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore
     private Set<DriverPlantAssignment> plantAssignments = new HashSet<>();
 }
