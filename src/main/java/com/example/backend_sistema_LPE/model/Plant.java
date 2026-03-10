@@ -44,6 +44,10 @@ public class Plant {
 
     @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore
+    private List<FormatWeekManualRow> formatWeekManualRows;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
     private List<RegalWeek> regalWeeks;
 
     @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)

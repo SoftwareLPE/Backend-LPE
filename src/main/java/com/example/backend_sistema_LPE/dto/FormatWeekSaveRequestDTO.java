@@ -19,5 +19,6 @@ public class FormatWeekSaveRequestDTO {
     private LocalDate weekDate;
     private Long shiftId;
     private Long formatTypeId;
+    private List<FormatWeekManualRowDTO> manualRows;
     private List<FormatWeekRowDTO> rows;
 }

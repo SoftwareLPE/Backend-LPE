@@ -269,6 +269,9 @@ public class FormatWeekPdfService {
         if (row == null) {
             return null;
         }
+        if (row.getManualRowId() != null) {
+            return "M:" + row.getManualRowId();
+        }
         if (row.getExtraRow() != null && row.getExtraRow()) {
             String label = row.getSecondaryValue();
             if (label == null || label.isBlank()) {
@@ -285,6 +288,9 @@ public class FormatWeekPdfService {
     private void mergeRow(FormatWeekRowDTO base, FormatWeekRowDTO incoming) {
         if (base.getFormatWeekId() == null && incoming.getFormatWeekId() != null) {
             base.setFormatWeekId(incoming.getFormatWeekId());
+        }
+        if (base.getManualRowId() == null && incoming.getManualRowId() != null) {
+            base.setManualRowId(incoming.getManualRowId());
         }
         if (base.getRouteName() == null && incoming.getRouteName() != null) {
             base.setRouteName(incoming.getRouteName());

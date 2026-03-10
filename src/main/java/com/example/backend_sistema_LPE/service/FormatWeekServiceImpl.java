@@ -1,8 +1,8 @@
 package com.example.backend_sistema_LPE.service;
 
 import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
-import com.example.backend_sistema_LPE.dto.FormatExtraRowDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekCellDTO;
+import com.example.backend_sistema_LPE.dto.FormatWeekManualRowDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekResponseDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekRowDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekSaveRequestDTO;
@@ -16,6 +16,7 @@ import com.example.backend_sistema_LPE.model.FormatTurnConfig;
 import com.example.backend_sistema_LPE.model.FormatType;
 import com.example.backend_sistema_LPE.model.FormatWeek;
 import com.example.backend_sistema_LPE.model.FormatWeekCell;
+import com.example.backend_sistema_LPE.model.FormatWeekManualRow;
 import com.example.backend_sistema_LPE.model.Plant;
 import com.example.backend_sistema_LPE.model.Route;
 import com.example.backend_sistema_LPE.model.Shift;
@@ -26,6 +27,7 @@ import com.example.backend_sistema_LPE.repository.DriverPlantAssignmentRepositor
 import com.example.backend_sistema_LPE.repository.FormatTurnConfigRepository;
 import com.example.backend_sistema_LPE.repository.FormatTypeRepository;
 import com.example.backend_sistema_LPE.repository.FormatWeekRepository;
+import com.example.backend_sistema_LPE.repository.FormatWeekManualRowRepository;
 import com.example.backend_sistema_LPE.repository.CascadaRecipientRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.RouteRepository;
@@ -50,6 +52,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     private final FormatWeekRepository formatWeekRepository;
     private final FormatTypeRepository formatTypeRepository;
     private final FormatTurnConfigRepository formatTurnConfigRepository;
+    private final FormatWeekManualRowRepository formatWeekManualRowRepository;
     private final PlantRepository plantRepository;
     private final ShiftRepository shiftRepository;
     private final RouteRepository routeRepository;
@@ -63,6 +66,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             FormatWeekRepository formatWeekRepository,
             FormatTypeRepository formatTypeRepository,
             FormatTurnConfigRepository formatTurnConfigRepository,
+            FormatWeekManualRowRepository formatWeekManualRowRepository,
             PlantRepository plantRepository,
             ShiftRepository shiftRepository,
             RouteRepository routeRepository,
@@ -75,6 +79,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         this.formatWeekRepository = formatWeekRepository;
         this.formatTypeRepository = formatTypeRepository;
         this.formatTurnConfigRepository = formatTurnConfigRepository;
+        this.formatWeekManualRowRepository = formatWeekManualRowRepository;
         this.plantRepository = plantRepository;
         this.shiftRepository = shiftRepository;
         this.routeRepository = routeRepository;
@@ -121,10 +126,14 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         FormatType formatType = formatTypeRepository.findById(formatTypeId)
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
 
-        markExtraRows(formatType, savedRows);
-
         List<FormatTurnConfig> turnConfigs = formatTurnConfigRepository
                 .findByFormatTypeFormatTypeId(formatTypeId);
+        List<FormatWeekManualRow> manualRows = formatWeekManualRowRepository
+                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
+                        plantId,
+                        formatTypeId,
+                        weekDate
+                );
 
         List<FormatWeekRowDTO> rows = new ArrayList<>(savedRows);
 
@@ -132,9 +141,8 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             List<FormatWeekRowDTO> baseRows = usesDriver(formatType)
                     ? buildDriverRows(plantId, shiftId, formatType, turnConfigs)
                     : buildRouteRows(plantId, formatType, turnConfigs);
-
             baseRows = new ArrayList<>(baseRows);
-            baseRows.addAll(buildExtraRows(formatType, turnConfigs));
+            baseRows.addAll(buildManualRows(manualRows, turnConfigs));
 
             if (!baseRows.isEmpty()) {
                 rows = mergeBaseRows(baseRows, savedRows, usesDriver(formatType));
@@ -172,6 +180,12 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 .stream()
                 .collect(Collectors.toMap(FormatTurnConfig::getTurnConfigId, c -> c));
 
+        List<FormatWeekManualRow> persistedManualRows = saveManualRows(
+                request,
+                plant,
+                formatType,
+                userId
+        );
         formatWeekRepository.deleteByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
                 request.getPlantId(),
                 request.getWeekDate(),
@@ -186,16 +200,24 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             week.setShift(shift);
             week.setFormatType(formatType);
             week.setWeekDate(request.getWeekDate());
-            week.setUnitType(row.getUnitType());
-            week.setSecondaryValue(row.getSecondaryValue());
             week.setStatus(CascadaStatus.DRAFT);
 
-            if (row.getRouteId() != null) {
+            FormatWeekManualRow manualRow = resolveManualRow(row, persistedManualRows);
+            if (manualRow != null) {
+                week.setManualRow(manualRow);
+                week.setUnitType(manualRow.getUnitType());
+                week.setSecondaryValue(manualRow.getSecondaryValue());
+            } else {
+                week.setUnitType(row.getUnitType());
+                week.setSecondaryValue(row.getSecondaryValue());
+            }
+
+            if (manualRow == null && row.getRouteId() != null) {
                 Route route = routeRepository.findById(row.getRouteId())
                         .orElseThrow(() -> new RuntimeException("Route not found: " + row.getRouteId()));
                 week.setRoute(route);
             }
-            if (row.getDriverId() != null) {
+            if (manualRow == null && row.getDriverId() != null) {
                 Driver driver = driverRepository.findById(row.getDriverId())
                         .orElseThrow(() -> new RuntimeException("Driver not found: " + row.getDriverId()));
                 week.setDriver(driver);
@@ -483,11 +505,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             days.put(entry.getKey(), turns);
         }
 
-        List<FormatExtraRowDTO> extraRows = extraRowLabels(formatType).stream()
-                .map(FormatExtraRowDTO::new)
-                .toList();
-
-        return new FormatWeekSchemaDTO(formatTypeId, baseColumns, days, extraRows);
+        return new FormatWeekSchemaDTO(formatTypeId, baseColumns, days, List.of());
     }
 
     private FormatWeekRowDTO toRowDTO(FormatWeek week) {
@@ -501,16 +519,18 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                         ))
                         .toList();
 
+        FormatWeekManualRow manualRow = week.getManualRow();
         return new FormatWeekRowDTO(
                 week.getFormatWeekId(),
+                manualRow == null ? null : manualRow.getManualRowId(),
                 week.getRoute() == null ? null : week.getRoute().getRouteId(),
-                week.getRoute() == null ? null : week.getRoute().getRouteName(),
+                manualRow != null ? manualRow.getRouteName() : week.getRoute() == null ? null : week.getRoute().getRouteName(),
                 week.getDriver() == null ? null : week.getDriver().getDriverId(),
-                week.getDriver() == null ? null : week.getDriver().getDriverName(),
-                week.getDriver() == null ? null : week.getDriver().getLastName(),
-                week.getUnitType(),
-                week.getSecondaryValue(),
-                Boolean.FALSE,
+                manualRow != null ? manualRow.getDriverName() : week.getDriver() == null ? null : week.getDriver().getDriverName(),
+                manualRow != null ? manualRow.getDriverLastName() : week.getDriver() == null ? null : week.getDriver().getLastName(),
+                manualRow != null ? manualRow.getUnitType() : week.getUnitType(),
+                manualRow != null ? manualRow.getSecondaryValue() : week.getSecondaryValue(),
+                manualRow != null ? Boolean.TRUE : week.getRoute() == null && week.getDriver() == null,
                 cells
         );
     }
@@ -564,6 +584,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         return routes.stream()
                 .map(route -> new FormatWeekRowDTO(
                         null,
+                        null,
                         route.getRouteId(),
                         route.getRouteName(),
                         null,
@@ -598,6 +619,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             Route route = assignmentOpt.get().getRoute();
             rows.add(new FormatWeekRowDTO(
                     null,
+                    null,
                     route == null ? null : route.getRouteId(),
                     route == null ? null : route.getRouteName(),
                     driver.getDriverId(),
@@ -625,60 +647,28 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         return cells;
     }
 
-    private List<FormatWeekRowDTO> buildExtraRows(
-            FormatType formatType,
+    private List<FormatWeekRowDTO> buildManualRows(
+            List<FormatWeekManualRow> manualRows,
             List<FormatTurnConfig> turnConfigs
     ) {
-        List<String> labels = extraRowLabels(formatType);
-        if (labels.isEmpty()) {
+        if (manualRows == null || manualRows.isEmpty()) {
             return List.of();
         }
-
-        List<FormatWeekRowDTO> rows = new ArrayList<>();
-        for (String label : labels) {
-            rows.add(new FormatWeekRowDTO(
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    label,
-                    Boolean.TRUE,
-                    buildEmptyCells(turnConfigs)
-            ));
-        }
-        return rows;
-    }
-
-    private List<String> extraRowLabels(FormatType formatType) {
-        if (formatType == null || formatType.getName() == null) {
-            return List.of();
-        }
-        String name = formatType.getName().trim().toUpperCase();
-        return switch (name) {
-            case "BOSCH_JUP2" -> List.of("Viajes de voluntariado", "");
-            case "TPI_PLANTA_MX1" -> List.of("Viajes de traslado", "Viajes de voluntariado");
-            case "TPI_PLANTA_MX2_3" -> List.of("Viajes de voluntariado", "Viajes de traslado");
-            default -> List.of();
-        };
-    }
-
-    private void markExtraRows(FormatType formatType, List<FormatWeekRowDTO> rows) {
-        List<String> labels = extraRowLabels(formatType);
-        if (labels.isEmpty()) {
-            return;
-        }
-        for (FormatWeekRowDTO row : rows) {
-            if (row.getRouteId() != null || row.getDriverId() != null) {
-                continue;
-            }
-            String label = row.getSecondaryValue() == null ? "" : row.getSecondaryValue();
-            if (labels.contains(label)) {
-                row.setExtraRow(Boolean.TRUE);
-            }
-        }
+        return manualRows.stream()
+                .map(row -> new FormatWeekRowDTO(
+                        null,
+                        row.getManualRowId(),
+                        null,
+                        row.getRouteName(),
+                        null,
+                        row.getDriverName(),
+                        row.getDriverLastName(),
+                        row.getUnitType(),
+                        row.getSecondaryValue(),
+                        Boolean.TRUE.equals(row.getExtraRow()),
+                        buildEmptyCells(turnConfigs)
+                ))
+                .toList();
     }
 
     private List<FormatWeekRowDTO> mergeBaseRows(
@@ -711,6 +701,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     }
 
     private String rowKey(FormatWeekRowDTO row, boolean usesDriver) {
+        if (row.getManualRowId() != null) {
+            return "M:" + row.getManualRowId();
+        }
         if (row.getExtraRow() != null && row.getExtraRow()) {
             String label = row.getSecondaryValue();
             if (label == null || label.isBlank()) {
@@ -727,6 +720,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     private void mergeRow(FormatWeekRowDTO base, FormatWeekRowDTO saved) {
         if (base.getFormatWeekId() == null && saved.getFormatWeekId() != null) {
             base.setFormatWeekId(saved.getFormatWeekId());
+        }
+        if (base.getManualRowId() == null && saved.getManualRowId() != null) {
+            base.setManualRowId(saved.getManualRowId());
         }
         if (base.getRouteName() == null && saved.getRouteName() != null) {
             base.setRouteName(saved.getRouteName());
@@ -764,6 +760,195 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             }
             baseCell.setTripCount(savedCell.getTripCount());
         }
+    }
+
+    private List<FormatWeekManualRow> saveManualRows(
+            FormatWeekSaveRequestDTO request,
+            Plant plant,
+            FormatType formatType,
+            Long userId
+    ) {
+        List<FormatWeekManualRow> existing = new ArrayList<>(formatWeekManualRowRepository
+                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
+                        request.getPlantId(),
+                        request.getFormatTypeId(),
+                        request.getWeekDate()
+                ));
+
+        boolean explicitManualRows = request.getManualRows() != null;
+        List<FormatWeekManualRowDTO> requestedManualRows = request.getManualRows();
+        if (requestedManualRows == null) {
+            requestedManualRows = inferManualRowsFromShiftPayload(request.getRows());
+        }
+
+        if (requestedManualRows == null) {
+            return existing;
+        }
+        if (requestedManualRows.isEmpty()) {
+            if (explicitManualRows) {
+                deleteManualRowsAndCounts(existing);
+                return List.of();
+            }
+            return existing;
+        }
+
+        Map<Long, FormatWeekManualRow> existingById = existing.stream()
+                .filter(row -> row.getManualRowId() != null)
+                .collect(Collectors.toMap(FormatWeekManualRow::getManualRowId, row -> row, (a, b) -> a, LinkedHashMap::new));
+
+        List<FormatWeekManualRow> persisted = new ArrayList<>();
+        int sequence = 0;
+        LocalDateTime now = LocalDateTime.now();
+        for (FormatWeekManualRowDTO dto : requestedManualRows) {
+            FormatWeekManualRow row = dto.getManualRowId() == null
+                    ? new FormatWeekManualRow()
+                    : existingById.getOrDefault(dto.getManualRowId(), new FormatWeekManualRow());
+            row.setPlant(plant);
+            row.setFormatType(formatType);
+            row.setWeekDate(request.getWeekDate());
+            row.setRouteName(trimToNull(dto.getRouteName()));
+            row.setDriverName(trimToNull(dto.getDriverName()));
+            row.setDriverLastName(trimToNull(dto.getDriverLastName()));
+            row.setUnitType(trimToNull(dto.getUnitType()));
+            row.setSecondaryValue(trimToNull(dto.getSecondaryValue()));
+            row.setExtraRow(dto.getExtraRow() == null ? Boolean.TRUE : dto.getExtraRow());
+            row.setSortOrder(dto.getSortOrder() == null ? sequence : dto.getSortOrder());
+            row.setUpdatedAt(now);
+            row.setUpdatedByUserId(userId);
+            persisted.add(formatWeekManualRowRepository.save(row));
+            sequence++;
+        }
+
+        if (request.getManualRows() != null) {
+            Set<Long> keptIds = persisted.stream()
+                    .map(FormatWeekManualRow::getManualRowId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(Collectors.toSet());
+            List<FormatWeekManualRow> toDelete = existing.stream()
+                    .filter(row -> row.getManualRowId() != null && !keptIds.contains(row.getManualRowId()))
+                    .toList();
+            if (!toDelete.isEmpty()) {
+                deleteManualRowsAndCounts(toDelete);
+            }
+        }
+
+        return formatWeekManualRowRepository
+                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
+                        request.getPlantId(),
+                        request.getFormatTypeId(),
+                        request.getWeekDate()
+                );
+    }
+
+    private List<FormatWeekManualRowDTO> inferManualRowsFromShiftPayload(List<FormatWeekRowDTO> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<FormatWeekManualRowDTO> manualRows = new ArrayList<>();
+        int sequence = 0;
+        for (FormatWeekRowDTO row : rows) {
+            if (!isManualRow(row)) {
+                continue;
+            }
+            manualRows.add(new FormatWeekManualRowDTO(
+                    row.getManualRowId(),
+                    row.getRouteName(),
+                    row.getDriverName(),
+                    row.getDriverLastName(),
+                    row.getUnitType(),
+                    row.getSecondaryValue(),
+                    row.getExtraRow(),
+                    sequence++
+            ));
+        }
+        return manualRows;
+    }
+
+    private FormatWeekManualRow resolveManualRow(FormatWeekRowDTO row, List<FormatWeekManualRow> persistedManualRows) {
+        if (!isManualRow(row)) {
+            return null;
+        }
+        if (persistedManualRows == null || persistedManualRows.isEmpty()) {
+            return null;
+        }
+        if (row.getManualRowId() != null) {
+            return persistedManualRows.stream()
+                    .filter(manualRow -> row.getManualRowId().equals(manualRow.getManualRowId()))
+                    .findFirst()
+                    .orElse(null);
+        }
+        String signature = manualRowSignature(
+                row.getRouteName(),
+                row.getDriverName(),
+                row.getDriverLastName(),
+                row.getUnitType(),
+                row.getSecondaryValue()
+        );
+        return persistedManualRows.stream()
+                .filter(manualRow -> signature.equals(manualRowSignature(
+                        manualRow.getRouteName(),
+                        manualRow.getDriverName(),
+                        manualRow.getDriverLastName(),
+                        manualRow.getUnitType(),
+                        manualRow.getSecondaryValue()
+                )))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean isManualRow(FormatWeekRowDTO row) {
+        if (row == null) {
+            return false;
+        }
+        if (row.getManualRowId() != null) {
+            return true;
+        }
+        return row.getRouteId() == null && row.getDriverId() == null;
+    }
+
+    private String manualRowSignature(
+            String routeName,
+            String driverName,
+            String driverLastName,
+            String unitType,
+            String secondaryValue
+    ) {
+        return String.join("|",
+                normalizeSignature(routeName),
+                normalizeSignature(driverName),
+                normalizeSignature(driverLastName),
+                normalizeSignature(unitType),
+                normalizeSignature(secondaryValue)
+        );
+    }
+
+    private String normalizeSignature(String value) {
+        return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private void deleteManualRowsAndCounts(List<FormatWeekManualRow> manualRows) {
+        if (manualRows == null || manualRows.isEmpty()) {
+            return;
+        }
+        List<Long> manualRowIds = manualRows.stream()
+                .map(FormatWeekManualRow::getManualRowId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (!manualRowIds.isEmpty()) {
+            List<FormatWeek> weeks = formatWeekRepository.findByManualRowManualRowIdIn(manualRowIds);
+            if (!weeks.isEmpty()) {
+                formatWeekRepository.deleteAll(weeks);
+            }
+        }
+        formatWeekManualRowRepository.deleteAll(manualRows);
     }
 
     private String stableCascadaId(Long plantId, LocalDate weekDate) {

@@ -58,6 +58,10 @@ public class FormatWeek {
     @JoinColumn(name = "driver_id")
     private Driver driver;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "manual_row_id")
+    private FormatWeekManualRow manualRow;
+
     @Column(name = "unit_type")
     private String unitType;
 

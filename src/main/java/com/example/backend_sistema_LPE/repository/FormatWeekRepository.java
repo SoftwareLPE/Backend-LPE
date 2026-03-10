@@ -52,4 +52,6 @@ public interface FormatWeekRepository extends JpaRepository<FormatWeek, Long> {
             Long plantId,
             LocalDate weekDate
     );
+
+    List<FormatWeek> findByManualRowManualRowIdIn(List<Long> manualRowIds);
 }

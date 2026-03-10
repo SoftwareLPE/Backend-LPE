@@ -5,22 +5,17 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.util.List;
-
 @Getter
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class FormatWeekRowDTO {
-    private Long formatWeekId;
+public class FormatWeekManualRowDTO {
     private Long manualRowId;
-    private Long routeId;
     private String routeName;
-    private Long driverId;
     private String driverName;
     private String driverLastName;
     private String unitType;
     private String secondaryValue;
     private Boolean extraRow;
-    private List<FormatWeekCellDTO> cells;
+    private Integer sortOrder;
 }

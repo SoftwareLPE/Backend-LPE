@@ -7,6 +7,7 @@ import com.example.backend_sistema_LPE.model.Plant;
 import com.example.backend_sistema_LPE.repository.CompanyRepository;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
+import com.example.backend_sistema_LPE.repository.FormatWeekManualRowRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.RoleCompanyRepository;
 import com.example.backend_sistema_LPE.repository.RolePlantRepository;
@@ -28,6 +29,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
     private final RolePlantRepository rolePlantRepository;
     private final DriverRepository driverRepository;
     private final DriverRouteRepository driverRouteRepository;
+    private final FormatWeekManualRowRepository formatWeekManualRowRepository;
     private final ShiftRepository shiftRepository;
 
     public CompanyAdminServiceImpl(
@@ -39,6 +41,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
             RolePlantRepository rolePlantRepository,
             DriverRepository driverRepository,
             DriverRouteRepository driverRouteRepository,
+            FormatWeekManualRowRepository formatWeekManualRowRepository,
             ShiftRepository shiftRepository
     ) {
         this.companyRepository = companyRepository;
@@ -49,6 +52,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
         this.rolePlantRepository = rolePlantRepository;
         this.driverRepository = driverRepository;
         this.driverRouteRepository = driverRouteRepository;
+        this.formatWeekManualRowRepository = formatWeekManualRowRepository;
         this.shiftRepository = shiftRepository;
     }
 
@@ -147,6 +151,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new RuntimeException("Company not found " + companyId));
 
+        formatWeekManualRowRepository.deleteByPlantCompanyCompanyId(companyId);
         shiftRepository.deleteByPlantCompanyCompanyId(companyId);
         driverRouteRepository.deleteByDriverPlantCompanyCompanyId(companyId);
         driverRepository.deleteByPlantCompanyCompanyId(companyId);
