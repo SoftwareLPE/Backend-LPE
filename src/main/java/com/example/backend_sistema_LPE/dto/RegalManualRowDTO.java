@@ -5,15 +5,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.util.List;
-
 @Getter
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class FlexsurWeekRowDTO {
-    private Long flexsurWeekId;
-    private Long manualFlexsurRowId;
-    private String serviceName;
-    private List<FlexsurDetailDTO> details;
+public class RegalManualRowDTO {
+    private Long manualRegalRowId;
+    private String driverNameOverride;
+    private Integer sortOrder;
 }

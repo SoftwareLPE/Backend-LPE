@@ -19,6 +19,8 @@ public interface FlexsurWeekRepository extends JpaRepository<FlexsurWeek, Long> 
             Long shiftId
     );
 
+    List<FlexsurWeek> findByManualRowManualFlexsurRowIdIn(List<Long> manualRowIds);
+
     void deleteByPlantPlantIdAndWeekDate(Long plantId, LocalDate weekDate);
 
     void deleteByPlantPlantIdAndWeekDateAndShiftShiftId(Long plantId, LocalDate weekDate, Long shiftId);

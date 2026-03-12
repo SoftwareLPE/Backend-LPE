@@ -19,6 +19,8 @@ public interface RegalWeekRepository extends JpaRepository<RegalWeek, Long> {
             Long shiftId
     );
 
+    List<RegalWeek> findByManualRowManualRegalRowIdIn(List<Long> manualRowIds);
+
     void deleteByPlantPlantIdAndWeekDate(Long plantId, LocalDate weekDate);
 
     void deleteByPlantPlantIdAndWeekDateAndShiftShiftId(Long plantId, LocalDate weekDate, Long shiftId);

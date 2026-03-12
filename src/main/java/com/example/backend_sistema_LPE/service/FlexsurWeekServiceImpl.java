@@ -1,17 +1,24 @@
 package com.example.backend_sistema_LPE.service;
 
 import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
+import com.example.backend_sistema_LPE.dto.CreateFlexsurManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurDetailDTO;
+import com.example.backend_sistema_LPE.dto.FlexsurManualRowDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekResponseDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekRowDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekTotalsDTO;
 import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
+import com.example.backend_sistema_LPE.dto.UpdateFlexsurManualRowRequestDTO;
 import com.example.backend_sistema_LPE.enums.CascadaStatus;
 import com.example.backend_sistema_LPE.model.FlexsurDetail;
+import com.example.backend_sistema_LPE.model.FlexsurManualRow;
+import com.example.backend_sistema_LPE.model.FlexsurService;
 import com.example.backend_sistema_LPE.model.FlexsurWeek;
 import com.example.backend_sistema_LPE.model.Plant;
 import com.example.backend_sistema_LPE.model.User;
+import com.example.backend_sistema_LPE.repository.FlexsurManualRowRepository;
+import com.example.backend_sistema_LPE.repository.FlexsurServiceRepository;
 import com.example.backend_sistema_LPE.repository.FlexsurWeekRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.UserRepository;
@@ -30,17 +37,23 @@ import java.util.Map;
 @Service
 public class FlexsurWeekServiceImpl implements FlexsurWeekService {
     private final FlexsurWeekRepository flexsurWeekRepository;
+    private final FlexsurManualRowRepository flexsurManualRowRepository;
+    private final FlexsurServiceRepository flexsurServiceRepository;
     private final PlantRepository plantRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     public FlexsurWeekServiceImpl(
             FlexsurWeekRepository flexsurWeekRepository,
+            FlexsurManualRowRepository flexsurManualRowRepository,
+            FlexsurServiceRepository flexsurServiceRepository,
             PlantRepository plantRepository,
             UserRepository userRepository,
             SimpMessagingTemplate messagingTemplate
     ) {
         this.flexsurWeekRepository = flexsurWeekRepository;
+        this.flexsurManualRowRepository = flexsurManualRowRepository;
+        this.flexsurServiceRepository = flexsurServiceRepository;
         this.plantRepository = plantRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
@@ -56,10 +69,17 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         }
 
         List<FlexsurWeek> weeks = flexsurWeekRepository.findByPlantPlantIdAndWeekDate(plantId, weekDate);
+        List<FlexsurManualRow> manualRows = flexsurManualRowRepository
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualFlexsurRowIdAsc(plantId, weekDate);
+        List<FlexsurService> services = flexsurServiceRepository
+                .findByPlantPlantIdAndActiveTrueOrderBySortOrderAscServiceNameAsc(plantId);
 
-        List<FlexsurWeekRowDTO> rows = weeks.stream()
+        List<FlexsurWeekRowDTO> savedRows = weeks.stream()
                 .map(this::toRowDTO)
                 .toList();
+        List<FlexsurWeekRowDTO> baseRows = new ArrayList<>(buildCatalogRows(services));
+        baseRows.addAll(buildManualRows(manualRows));
+        List<FlexsurWeekRowDTO> rows = mergeRows(baseRows, savedRows);
 
         FlexsurWeekTotalsDTO totals = buildTotals(rows);
         String status = resolveStatus(weeks);
@@ -78,6 +98,11 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
 
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
+        List<FlexsurManualRow> manualRows = flexsurManualRowRepository
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualFlexsurRowIdAsc(
+                        request.getPlantId(),
+                        request.getWeekDate()
+                );
 
         flexsurWeekRepository.deleteByPlantPlantIdAndWeekDate(
                 request.getPlantId(),
@@ -86,14 +111,20 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
 
         List<FlexsurWeekRowDTO> rows = request.getRows() == null ? List.of() : request.getRows();
         for (FlexsurWeekRowDTO row : rows) {
-            if (row.getServiceName() == null || row.getServiceName().isBlank()) {
+            FlexsurManualRow manualRow = resolveManualRow(row, manualRows);
+            if (isManualRow(row) && manualRow == null) {
+                throw new RuntimeException("Manual row not found: " + row.getManualFlexsurRowId());
+            }
+            String serviceName = manualRow != null ? manualRow.getServiceName() : trimToNull(row.getServiceName());
+            if (serviceName == null) {
                 throw new RuntimeException("serviceName is required");
             }
 
             FlexsurWeek week = new FlexsurWeek();
             week.setPlant(plant);
             week.setWeekDate(request.getWeekDate());
-            week.setServiceName(row.getServiceName().trim());
+            week.setManualRow(manualRow);
+            week.setServiceName(serviceName);
             week.setStatus(CascadaStatus.DRAFT);
 
             LocalDateTime now = LocalDateTime.now();
@@ -119,6 +150,88 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             week.setDetails(detailEntities);
             flexsurWeekRepository.save(week);
         }
+    }
+
+    @Override
+    @Transactional
+    public FlexsurManualRowDTO createManualRow(CreateFlexsurManualRowRequestDTO request, Long userId) {
+        if (request.getPlantId() == null) {
+            throw new RuntimeException("plantId is required");
+        }
+        if (request.getWeekDate() == null) {
+            throw new RuntimeException("weekDate is required");
+        }
+        String serviceName = trimToNull(request.getServiceName());
+        if (serviceName == null) {
+            throw new RuntimeException("serviceName is required");
+        }
+
+        Plant plant = plantRepository.findById(request.getPlantId())
+                .orElseThrow(() -> new RuntimeException("Plant not found"));
+        List<FlexsurManualRow> existing = flexsurManualRowRepository
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualFlexsurRowIdAsc(
+                        request.getPlantId(),
+                        request.getWeekDate()
+                );
+
+        int nextSortOrder = existing.stream()
+                .map(FlexsurManualRow::getSortOrder)
+                .filter(java.util.Objects::nonNull)
+                .max(Integer::compareTo)
+                .map(value -> value + 1)
+                .orElse(existing.size());
+
+        FlexsurManualRow manualRow = new FlexsurManualRow();
+        manualRow.setPlant(plant);
+        manualRow.setWeekDate(request.getWeekDate());
+        manualRow.setServiceName(serviceName);
+        manualRow.setSortOrder(request.getSortOrder() == null ? nextSortOrder : request.getSortOrder());
+        manualRow.setUpdatedAt(LocalDateTime.now());
+        manualRow.setUpdatedByUserId(userId);
+
+        return toManualRowDTO(flexsurManualRowRepository.save(manualRow));
+    }
+
+    @Override
+    @Transactional
+    public FlexsurManualRowDTO updateManualRow(
+            Long manualFlexsurRowId,
+            UpdateFlexsurManualRowRequestDTO request,
+            Long userId
+    ) {
+        if (manualFlexsurRowId == null) {
+            throw new RuntimeException("manualFlexsurRowId is required");
+        }
+
+        FlexsurManualRow manualRow = flexsurManualRowRepository.findById(manualFlexsurRowId)
+                .orElseThrow(() -> new RuntimeException("Manual row not found"));
+
+        if (request.getServiceName() != null) {
+            String serviceName = trimToNull(request.getServiceName());
+            if (serviceName == null) {
+                throw new RuntimeException("serviceName is required");
+            }
+            manualRow.setServiceName(serviceName);
+        }
+        if (request.getSortOrder() != null) {
+            manualRow.setSortOrder(request.getSortOrder());
+        }
+        manualRow.setUpdatedAt(LocalDateTime.now());
+        manualRow.setUpdatedByUserId(userId);
+
+        return toManualRowDTO(flexsurManualRowRepository.save(manualRow));
+    }
+
+    @Override
+    @Transactional
+    public void deleteManualRow(Long manualFlexsurRowId) {
+        if (manualFlexsurRowId == null) {
+            throw new RuntimeException("manualFlexsurRowId is required");
+        }
+
+        FlexsurManualRow manualRow = flexsurManualRowRepository.findById(manualFlexsurRowId)
+                .orElseThrow(() -> new RuntimeException("Manual row not found"));
+        deleteManualRowsAndCounts(List.of(manualRow));
     }
 
     @Override
@@ -257,9 +370,83 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
 
         return new FlexsurWeekRowDTO(
                 week.getFlexsurWeekId(),
-                week.getServiceName(),
+                week.getManualRow() == null ? null : week.getManualRow().getManualFlexsurRowId(),
+                week.getManualRow() == null ? week.getServiceName() : week.getManualRow().getServiceName(),
                 details
         );
+    }
+
+    private List<FlexsurWeekRowDTO> buildManualRows(List<FlexsurManualRow> manualRows) {
+        if (manualRows == null || manualRows.isEmpty()) {
+            return List.of();
+        }
+        return manualRows.stream()
+                .map(row -> new FlexsurWeekRowDTO(
+                        null,
+                        row.getManualFlexsurRowId(),
+                        row.getServiceName(),
+                        List.of()
+                ))
+                .toList();
+    }
+
+    private List<FlexsurWeekRowDTO> buildCatalogRows(List<FlexsurService> services) {
+        if (services == null || services.isEmpty()) {
+            return List.of();
+        }
+        return services.stream()
+                .map(service -> new FlexsurWeekRowDTO(
+                        null,
+                        null,
+                        service.getServiceName(),
+                        List.of()
+                ))
+                .toList();
+    }
+
+    private List<FlexsurWeekRowDTO> mergeRows(List<FlexsurWeekRowDTO> baseRows, List<FlexsurWeekRowDTO> savedRows) {
+        if (baseRows == null || baseRows.isEmpty()) {
+            return savedRows;
+        }
+
+        Map<String, FlexsurWeekRowDTO> baseByKey = new LinkedHashMap<>();
+        for (FlexsurWeekRowDTO row : baseRows) {
+            baseByKey.put(rowKey(row), row);
+        }
+
+        List<FlexsurWeekRowDTO> merged = new ArrayList<>(baseRows);
+        for (FlexsurWeekRowDTO saved : savedRows) {
+            String key = rowKey(saved);
+            FlexsurWeekRowDTO base = baseByKey.get(key);
+            if (base == null) {
+                merged.add(saved);
+                continue;
+            }
+            mergeRow(base, saved);
+        }
+        return merged;
+    }
+
+    private String rowKey(FlexsurWeekRowDTO row) {
+        if (row.getManualFlexsurRowId() != null) {
+            return "M:" + row.getManualFlexsurRowId();
+        }
+        return "S:" + normalizeKey(row.getServiceName());
+    }
+
+    private void mergeRow(FlexsurWeekRowDTO base, FlexsurWeekRowDTO saved) {
+        if (base.getFlexsurWeekId() == null && saved.getFlexsurWeekId() != null) {
+            base.setFlexsurWeekId(saved.getFlexsurWeekId());
+        }
+        if (base.getManualFlexsurRowId() == null && saved.getManualFlexsurRowId() != null) {
+            base.setManualFlexsurRowId(saved.getManualFlexsurRowId());
+        }
+        if (base.getServiceName() == null && saved.getServiceName() != null) {
+            base.setServiceName(saved.getServiceName());
+        }
+        if (saved.getDetails() != null && !saved.getDetails().isEmpty()) {
+            base.setDetails(saved.getDetails());
+        }
     }
 
     private FlexsurWeekTotalsDTO buildTotals(List<FlexsurWeekRowDTO> rows) {
@@ -299,6 +486,63 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         }
         CascadaStatus status = weeks.get(0).getStatus();
         return status == null ? null : status.name();
+    }
+
+    private FlexsurManualRow resolveManualRow(FlexsurWeekRowDTO row, List<FlexsurManualRow> manualRows) {
+        if (row == null || row.getManualFlexsurRowId() == null) {
+            return null;
+        }
+        if (manualRows != null && !manualRows.isEmpty()) {
+            FlexsurManualRow persisted = manualRows.stream()
+                    .filter(manualRow -> row.getManualFlexsurRowId().equals(manualRow.getManualFlexsurRowId()))
+                    .findFirst()
+                    .orElse(null);
+            if (persisted != null) {
+                return persisted;
+            }
+        }
+        return flexsurManualRowRepository.findById(row.getManualFlexsurRowId()).orElse(null);
+    }
+
+    private boolean isManualRow(FlexsurWeekRowDTO row) {
+        return row != null && row.getManualFlexsurRowId() != null;
+    }
+
+    private FlexsurManualRowDTO toManualRowDTO(FlexsurManualRow row) {
+        return new FlexsurManualRowDTO(
+                row.getManualFlexsurRowId(),
+                row.getServiceName(),
+                row.getSortOrder()
+        );
+    }
+
+    private void deleteManualRowsAndCounts(List<FlexsurManualRow> manualRows) {
+        if (manualRows == null || manualRows.isEmpty()) {
+            return;
+        }
+        List<Long> manualRowIds = manualRows.stream()
+                .map(FlexsurManualRow::getManualFlexsurRowId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (!manualRowIds.isEmpty()) {
+            List<FlexsurWeek> weeks = flexsurWeekRepository.findByManualRowManualFlexsurRowIdIn(manualRowIds);
+            if (!weeks.isEmpty()) {
+                flexsurWeekRepository.deleteAll(weeks);
+            }
+        }
+        flexsurManualRowRepository.deleteAll(manualRows);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private String normalizeKey(String value) {
+        return value == null ? "" : value.trim().toLowerCase();
     }
 
     private String mapDayKey(LocalDate date) {

@@ -15,4 +15,6 @@ public interface CascadaStandardCellRepository extends JpaRepository<CascadaStan
     List<CascadaStandardCell> findByWeek(CascadaStandardWeek week);
 
     void deleteByWeekAndDayKeyIn(CascadaStandardWeek week, Collection<String> dayKeys);
+
+    List<CascadaStandardCell> findByManualRowManualStandardRowIdIn(List<Long> manualRowIds);
 }

@@ -1,9 +1,15 @@
 package com.example.backend_sistema_LPE.service;
 
 import com.example.backend_sistema_LPE.dto.RegalDetailDTO;
+import com.example.backend_sistema_LPE.dto.CreateRegalManualRowRequestDTO;
+import com.example.backend_sistema_LPE.dto.RegalManualRowDTO;
 import com.example.backend_sistema_LPE.dto.RegalWeekResponseDTO;
 import com.example.backend_sistema_LPE.dto.RegalWeekRowDTO;
+import com.example.backend_sistema_LPE.dto.RegalWeekSchemaDTO;
+import com.example.backend_sistema_LPE.dto.RegalWeekSchemaTripTypeDTO;
 import com.example.backend_sistema_LPE.dto.RegalWeekSaveRequestDTO;
+import com.example.backend_sistema_LPE.dto.RegalWeekTotalsDTO;
+import com.example.backend_sistema_LPE.dto.UpdateRegalManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
 import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
 import com.example.backend_sistema_LPE.enums.CascadaStatus;
@@ -11,6 +17,7 @@ import com.example.backend_sistema_LPE.model.Driver;
 import com.example.backend_sistema_LPE.model.DriverPlantAssignment;
 import com.example.backend_sistema_LPE.model.Plant;
 import com.example.backend_sistema_LPE.model.RegalDetail;
+import com.example.backend_sistema_LPE.model.RegalManualRow;
 import com.example.backend_sistema_LPE.model.RegalTripType;
 import com.example.backend_sistema_LPE.model.RegalWeek;
 import com.example.backend_sistema_LPE.model.Shift;
@@ -18,6 +25,7 @@ import com.example.backend_sistema_LPE.model.User;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverPlantAssignmentRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
+import com.example.backend_sistema_LPE.repository.RegalManualRowRepository;
 import com.example.backend_sistema_LPE.repository.RegalTripTypeRepository;
 import com.example.backend_sistema_LPE.repository.RegalWeekRepository;
 import com.example.backend_sistema_LPE.repository.ShiftRepository;
@@ -29,7 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class RegalWeekServiceImpl implements RegalWeekService {
@@ -37,6 +47,7 @@ public class RegalWeekServiceImpl implements RegalWeekService {
     private final PlantRepository plantRepository;
     private final ShiftRepository shiftRepository;
     private final DriverRepository driverRepository;
+    private final RegalManualRowRepository regalManualRowRepository;
     private final RegalTripTypeRepository regalTripTypeRepository;
     private final DriverPlantAssignmentRepository driverPlantAssignmentRepository;
     private final UserRepository userRepository;
@@ -47,6 +58,7 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             PlantRepository plantRepository,
             ShiftRepository shiftRepository,
             DriverRepository driverRepository,
+            RegalManualRowRepository regalManualRowRepository,
             RegalTripTypeRepository regalTripTypeRepository,
             DriverPlantAssignmentRepository driverPlantAssignmentRepository,
             UserRepository userRepository,
@@ -56,10 +68,31 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         this.plantRepository = plantRepository;
         this.shiftRepository = shiftRepository;
         this.driverRepository = driverRepository;
+        this.regalManualRowRepository = regalManualRowRepository;
         this.regalTripTypeRepository = regalTripTypeRepository;
         this.driverPlantAssignmentRepository = driverPlantAssignmentRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
+    }
+
+    @Override
+    public RegalWeekSchemaDTO getRegalWeekSchema(Long plantId) {
+        if (plantId == null) {
+            throw new RuntimeException("plantId is required");
+        }
+
+        List<RegalWeekSchemaTripTypeDTO> tripTypes = regalTripTypeRepository
+                .findByPlantPlantIdAndActiveTrueOrderBySortOrderAsc(plantId)
+                .stream()
+                .map(this::toSchemaTripTypeDTO)
+                .toList();
+
+        return new RegalWeekSchemaDTO(
+                plantId,
+                List.of("CHOFER", "RUTA", "RECORRIDO"),
+                tripTypes,
+                "SUM"
+        );
     }
 
     @Override
@@ -71,25 +104,24 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             throw new RuntimeException("weekDate is required");
         }
 
-        List<RegalWeek> weeks = shiftId == null
-                ? regalWeekRepository.findByPlantPlantIdAndWeekDate(plantId, weekDate)
-                : regalWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftId(plantId, weekDate, shiftId);
+        List<RegalWeek> weeks = regalWeekRepository.findByPlantPlantIdAndWeekDate(plantId, weekDate);
 
         List<RegalWeekRowDTO> savedRows = weeks.stream()
                 .map(this::toRowDTO)
                 .toList();
 
-        if (shiftId == null) {
-            return new RegalWeekResponseDTO(plantId, weekDate, shiftId, savedRows);
-        }
-
+        List<RegalManualRow> manualRows = regalManualRowRepository
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualRegalRowIdAsc(plantId, weekDate);
         List<RegalTripType> tripTypes = regalTripTypeRepository
                 .findByPlantPlantIdAndActiveTrueOrderBySortOrderAsc(plantId);
 
-        List<RegalWeekRowDTO> baseRows = buildBaseRows(plantId, shiftId, tripTypes);
+        List<RegalWeekRowDTO> baseRows = buildBaseRows(plantId, tripTypes);
+        baseRows.addAll(buildManualRows(manualRows, tripTypes));
         List<RegalWeekRowDTO> rows = mergeBaseRows(baseRows, savedRows);
+        enrichRowTotals(rows, tripTypes);
+        RegalWeekTotalsDTO totals = buildTotals(rows, tripTypes);
 
-        return new RegalWeekResponseDTO(plantId, weekDate, shiftId, rows);
+        return new RegalWeekResponseDTO(plantId, weekDate, null, rows, totals);
     }
 
     @Override
@@ -101,30 +133,35 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         if (request.getWeekDate() == null) {
             throw new RuntimeException("weekDate is required");
         }
-        if (request.getShiftId() == null) {
-            throw new RuntimeException("shiftId is required");
-        }
-
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
-        Shift shift = shiftRepository.findById(request.getShiftId())
-                .orElseThrow(() -> new RuntimeException("Shift not found"));
+        List<RegalManualRow> manualRows = regalManualRowRepository
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualRegalRowIdAsc(
+                        request.getPlantId(),
+                        request.getWeekDate()
+                );
 
-        regalWeekRepository.deleteByPlantPlantIdAndWeekDateAndShiftShiftId(
+        regalWeekRepository.deleteByPlantPlantIdAndWeekDate(
                 request.getPlantId(),
-                request.getWeekDate(),
-                request.getShiftId()
+                request.getWeekDate()
         );
 
         List<RegalWeekRowDTO> rows = request.getRows() == null ? List.of() : request.getRows();
         for (RegalWeekRowDTO row : rows) {
             RegalWeek week = new RegalWeek();
             week.setPlant(plant);
-            week.setShift(shift);
+            week.setShift(null);
             week.setWeekDate(request.getWeekDate());
             week.setStatus(CascadaStatus.DRAFT);
 
-            if (row.getDriverId() != null) {
+            RegalManualRow manualRow = resolveManualRow(row, manualRows);
+            if (isManualRow(row) && manualRow == null) {
+                throw new RuntimeException("Manual row not found: " + row.getManualRegalRowId());
+            }
+
+            if (manualRow != null) {
+                week.setManualRow(manualRow);
+            } else if (row.getDriverId() != null) {
                 Driver driver = driverRepository.findById(row.getDriverId())
                         .orElseThrow(() -> new RuntimeException("Driver not found: " + row.getDriverId()));
                 week.setDriver(driver);
@@ -154,6 +191,88 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             week.setDetails(detailEntities);
             regalWeekRepository.save(week);
         }
+    }
+
+    @Override
+    @Transactional
+    public RegalManualRowDTO createManualRow(CreateRegalManualRowRequestDTO request, Long userId) {
+        if (request.getPlantId() == null) {
+            throw new RuntimeException("plantId is required");
+        }
+        if (request.getWeekDate() == null) {
+            throw new RuntimeException("weekDate is required");
+        }
+        String driverNameOverride = trimToNull(request.getDriverNameOverride());
+        if (driverNameOverride == null) {
+            throw new RuntimeException("driverNameOverride is required");
+        }
+
+        Plant plant = plantRepository.findById(request.getPlantId())
+                .orElseThrow(() -> new RuntimeException("Plant not found"));
+        List<RegalManualRow> existing = regalManualRowRepository
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualRegalRowIdAsc(
+                        request.getPlantId(),
+                        request.getWeekDate()
+                );
+
+        int nextSortOrder = existing.stream()
+                .map(RegalManualRow::getSortOrder)
+                .filter(java.util.Objects::nonNull)
+                .max(Integer::compareTo)
+                .map(value -> value + 1)
+                .orElse(existing.size());
+
+        RegalManualRow manualRow = new RegalManualRow();
+        manualRow.setPlant(plant);
+        manualRow.setWeekDate(request.getWeekDate());
+        manualRow.setDriverNameOverride(driverNameOverride);
+        manualRow.setSortOrder(request.getSortOrder() == null ? nextSortOrder : request.getSortOrder());
+        manualRow.setUpdatedAt(LocalDateTime.now());
+        manualRow.setUpdatedByUserId(userId);
+
+        return toManualRowDTO(regalManualRowRepository.save(manualRow));
+    }
+
+    @Override
+    @Transactional
+    public RegalManualRowDTO updateManualRow(
+            Long manualRegalRowId,
+            UpdateRegalManualRowRequestDTO request,
+            Long userId
+    ) {
+        if (manualRegalRowId == null) {
+            throw new RuntimeException("manualRegalRowId is required");
+        }
+
+        RegalManualRow manualRow = regalManualRowRepository.findById(manualRegalRowId)
+                .orElseThrow(() -> new RuntimeException("Manual row not found"));
+
+        if (request.getDriverNameOverride() != null) {
+            String driverNameOverride = trimToNull(request.getDriverNameOverride());
+            if (driverNameOverride == null) {
+                throw new RuntimeException("driverNameOverride is required");
+            }
+            manualRow.setDriverNameOverride(driverNameOverride);
+        }
+        if (request.getSortOrder() != null) {
+            manualRow.setSortOrder(request.getSortOrder());
+        }
+        manualRow.setUpdatedAt(LocalDateTime.now());
+        manualRow.setUpdatedByUserId(userId);
+
+        return toManualRowDTO(regalManualRowRepository.save(manualRow));
+    }
+
+    @Override
+    @Transactional
+    public void deleteManualRow(Long manualRegalRowId) {
+        if (manualRegalRowId == null) {
+            throw new RuntimeException("manualRegalRowId is required");
+        }
+
+        RegalManualRow manualRow = regalManualRowRepository.findById(manualRegalRowId)
+                .orElseThrow(() -> new RuntimeException("Manual row not found"));
+        deleteManualRowsAndCounts(List.of(manualRow));
     }
 
     @Override
@@ -303,21 +422,20 @@ public class RegalWeekServiceImpl implements RegalWeekService {
 
         return new RegalWeekRowDTO(
                 week.getRegalWeekId(),
+                week.getManualRow() == null ? null : week.getManualRow().getManualRegalRowId(),
                 driverId,
-                week.getDriver() == null ? null : week.getDriver().getDriverName(),
-                week.getDriver() == null ? null : week.getDriver().getLastName(),
+                week.getManualRow() == null ? week.getDriver() == null ? null : week.getDriver().getDriverName() : week.getManualRow().getDriverNameOverride(),
+                week.getManualRow() == null ? week.getDriver() == null ? null : week.getDriver().getLastName() : null,
                 assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteId(),
                 assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteName(),
-                assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getLocation(),
-                details
+                week.getManualRow() == null ? assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getLocation() : null,
+                details,
+                null,
+                null
         );
     }
 
-    private List<RegalWeekRowDTO> buildBaseRows(
-            Long plantId,
-            Long shiftId,
-            List<RegalTripType> tripTypes
-    ) {
+    private List<RegalWeekRowDTO> buildBaseRows(Long plantId, List<RegalTripType> tripTypes) {
         List<Driver> drivers = driverRepository.findByPlantPlantIdAndActiveTrue(plantId);
         List<RegalWeekRowDTO> rows = new ArrayList<>();
 
@@ -330,17 +448,44 @@ public class RegalWeekServiceImpl implements RegalWeekService {
 
             rows.add(new RegalWeekRowDTO(
                     null,
+                    null,
                     driver.getDriverId(),
                     driver.getDriverName(),
                     driver.getLastName(),
                     assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteId(),
                     assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteName(),
                     assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getLocation(),
-                    details
+                    details,
+                    null,
+                    null
             ));
         }
 
         return rows;
+    }
+
+    private List<RegalWeekRowDTO> buildManualRows(
+            List<RegalManualRow> manualRows,
+            List<RegalTripType> tripTypes
+    ) {
+        if (manualRows == null || manualRows.isEmpty()) {
+            return List.of();
+        }
+        return manualRows.stream()
+                .map(row -> new RegalWeekRowDTO(
+                        null,
+                        row.getManualRegalRowId(),
+                        null,
+                        row.getDriverNameOverride(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        buildEmptyDetails(tripTypes),
+                        null,
+                        null
+                ))
+                .toList();
     }
 
     private List<RegalDetailDTO> buildEmptyDetails(List<RegalTripType> tripTypes) {
@@ -365,18 +510,15 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             List<RegalWeekRowDTO> baseRows,
             List<RegalWeekRowDTO> savedRows
     ) {
-        java.util.Map<Long, RegalWeekRowDTO> baseByDriver = baseRows.stream()
-                .filter(row -> row.getDriverId() != null)
-                .collect(java.util.stream.Collectors.toMap(RegalWeekRowDTO::getDriverId, row -> row));
+        java.util.Map<String, RegalWeekRowDTO> baseByKey = baseRows.stream()
+                .map(row -> java.util.Map.entry(rowKey(row), row))
+                .filter(entry -> entry.getKey() != null)
+                .collect(java.util.stream.Collectors.toMap(java.util.Map.Entry::getKey, java.util.Map.Entry::getValue, (a, b) -> a));
 
         List<RegalWeekRowDTO> merged = new ArrayList<>(baseRows);
 
         for (RegalWeekRowDTO saved : savedRows) {
-            if (saved.getDriverId() == null) {
-                merged.add(saved);
-                continue;
-            }
-            RegalWeekRowDTO base = baseByDriver.get(saved.getDriverId());
+            RegalWeekRowDTO base = baseByKey.get(rowKey(saved));
             if (base == null) {
                 merged.add(saved);
                 continue;
@@ -390,6 +532,9 @@ public class RegalWeekServiceImpl implements RegalWeekService {
     private void mergeDetails(RegalWeekRowDTO base, RegalWeekRowDTO saved) {
         if (base.getRegalWeekId() == null && saved.getRegalWeekId() != null) {
             base.setRegalWeekId(saved.getRegalWeekId());
+        }
+        if (base.getManualRegalRowId() == null && saved.getManualRegalRowId() != null) {
+            base.setManualRegalRowId(saved.getManualRegalRowId());
         }
         if (base.getRouteId() == null && saved.getRouteId() != null) {
             base.setRouteId(saved.getRouteId());
@@ -424,6 +569,13 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         }
     }
 
+    private String rowKey(RegalWeekRowDTO row) {
+        if (row.getManualRegalRowId() != null) {
+            return "M:" + row.getManualRegalRowId();
+        }
+        return row.getDriverId() == null ? null : "D:" + row.getDriverId();
+    }
+
     private RegalTripType resolveTripType(Long plantId, RegalDetailDTO detailDTO) {
         if (detailDTO.getTripTypeId() != null) {
             return regalTripTypeRepository.findByTripTypeIdAndPlantPlantId(
@@ -438,6 +590,153 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             ).orElse(null);
         }
         return null;
+    }
+
+    private RegalManualRow resolveManualRow(RegalWeekRowDTO row, List<RegalManualRow> manualRows) {
+        if (row == null || row.getManualRegalRowId() == null) {
+            return null;
+        }
+        if (manualRows != null && !manualRows.isEmpty()) {
+            RegalManualRow persisted = manualRows.stream()
+                    .filter(manualRow -> row.getManualRegalRowId().equals(manualRow.getManualRegalRowId()))
+                    .findFirst()
+                    .orElse(null);
+            if (persisted != null) {
+                return persisted;
+            }
+        }
+        return regalManualRowRepository.findById(row.getManualRegalRowId()).orElse(null);
+    }
+
+    private boolean isManualRow(RegalWeekRowDTO row) {
+        if (row == null) {
+            return false;
+        }
+        if (row.getManualRegalRowId() != null) {
+            return true;
+        }
+        return row.getDriverId() == null && trimToNull(row.getDriverName()) != null;
+    }
+
+    private RegalManualRowDTO toManualRowDTO(RegalManualRow row) {
+        return new RegalManualRowDTO(
+                row.getManualRegalRowId(),
+                row.getDriverNameOverride(),
+                row.getSortOrder()
+        );
+    }
+
+    private RegalWeekSchemaTripTypeDTO toSchemaTripTypeDTO(RegalTripType tripType) {
+        return new RegalWeekSchemaTripTypeDTO(
+                tripType.getTripTypeId(),
+                tripType.getCode(),
+                tripType.getLabel(),
+                tripType.getSortOrder(),
+                orderDayKeys(tripType.getDayKeys()),
+                "TOTAL"
+        );
+    }
+
+    private RegalWeekTotalsDTO buildTotals(List<RegalWeekRowDTO> rows, List<RegalTripType> tripTypes) {
+        java.util.Map<Long, java.util.Map<String, Integer>> byTripTypeDay = new LinkedHashMap<>();
+        java.util.Map<Long, Integer> byTripType = new LinkedHashMap<>();
+
+        for (RegalTripType tripType : tripTypes) {
+            java.util.Map<String, Integer> dayTotals = new LinkedHashMap<>();
+            for (String dayKey : orderDayKeys(tripType.getDayKeys())) {
+                dayTotals.put(dayKey, 0);
+            }
+            byTripTypeDay.put(tripType.getTripTypeId(), dayTotals);
+            byTripType.put(tripType.getTripTypeId(), 0);
+        }
+
+        int weekTotal = 0;
+        for (RegalWeekRowDTO row : rows) {
+            List<RegalDetailDTO> details = row.getDetails() == null ? List.of() : row.getDetails();
+            for (RegalDetailDTO detail : details) {
+                if (detail.getTripTypeId() == null || detail.getDayOfWeek() == null) {
+                    continue;
+                }
+                int count = detail.getTripCount() == null ? 0 : detail.getTripCount();
+                java.util.Map<String, Integer> dayTotals = byTripTypeDay.computeIfAbsent(
+                        detail.getTripTypeId(),
+                        key -> new LinkedHashMap<>()
+                );
+                dayTotals.put(detail.getDayOfWeek(), dayTotals.getOrDefault(detail.getDayOfWeek(), 0) + count);
+                byTripType.put(detail.getTripTypeId(), byTripType.getOrDefault(detail.getTripTypeId(), 0) + count);
+                weekTotal += count;
+            }
+        }
+
+        return new RegalWeekTotalsDTO(byTripTypeDay, byTripType, weekTotal);
+    }
+
+    private void enrichRowTotals(List<RegalWeekRowDTO> rows, List<RegalTripType> tripTypes) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        List<Long> orderedTripTypeIds = tripTypes == null
+                ? List.of()
+                : tripTypes.stream()
+                        .map(RegalTripType::getTripTypeId)
+                        .toList();
+
+        for (RegalWeekRowDTO row : rows) {
+            java.util.Map<Long, Integer> totalsByTripType = new LinkedHashMap<>();
+            for (Long tripTypeId : orderedTripTypeIds) {
+                totalsByTripType.put(tripTypeId, 0);
+            }
+
+            int rowTotal = 0;
+            List<RegalDetailDTO> details = row.getDetails() == null ? List.of() : row.getDetails();
+            for (RegalDetailDTO detail : details) {
+                if (detail.getTripTypeId() == null) {
+                    continue;
+                }
+                int count = detail.getTripCount() == null ? 0 : detail.getTripCount();
+                totalsByTripType.put(
+                        detail.getTripTypeId(),
+                        totalsByTripType.getOrDefault(detail.getTripTypeId(), 0) + count
+                );
+                rowTotal += count;
+            }
+
+            row.setTotalsByTripType(totalsByTripType);
+            row.setRowTotal(rowTotal);
+        }
+    }
+
+    private List<String> orderDayKeys(Set<String> dayKeys) {
+        if (dayKeys == null || dayKeys.isEmpty()) {
+            return List.of();
+        }
+        List<String> ordered = List.of("lun", "mar", "mie", "jue", "vie", "sab", "dom");
+        return ordered.stream().filter(dayKeys::contains).toList();
+    }
+
+    private void deleteManualRowsAndCounts(List<RegalManualRow> manualRows) {
+        if (manualRows == null || manualRows.isEmpty()) {
+            return;
+        }
+        List<Long> ids = manualRows.stream()
+                .map(RegalManualRow::getManualRegalRowId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (!ids.isEmpty()) {
+            List<RegalWeek> weeks = regalWeekRepository.findByManualRowManualRegalRowIdIn(ids);
+            if (!weeks.isEmpty()) {
+                regalWeekRepository.deleteAll(weeks);
+            }
+        }
+        regalManualRowRepository.deleteAll(manualRows);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     private void publishRegalInboxMessagesForStatus(

@@ -48,11 +48,27 @@ public class Plant {
 
     @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore
+    private List<CascadaStandardManualRow> cascadaStandardManualRows;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
     private List<RegalWeek> regalWeeks;
 
     @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore
+    private List<RegalManualRow> regalManualRows;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
     private List<FlexsurWeek> flexsurWeeks;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
+    private List<FlexsurManualRow> flexsurManualRows;
+
+    @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JsonIgnore
+    private List<FlexsurServiceDriverAssignment> flexsurServiceDriverAssignments;
 
     @ManyToOne
     @JoinColumn(name = "companyId",nullable = false)

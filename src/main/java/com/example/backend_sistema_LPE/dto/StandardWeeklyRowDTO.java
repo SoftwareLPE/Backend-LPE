@@ -10,6 +10,7 @@ import lombok.Setter;
 @AllArgsConstructor
 @NoArgsConstructor
 public class StandardWeeklyRowDTO {
+    private Long manualStandardRowId;
     private Long driverId;
     private String driverName;
     private String lastName;

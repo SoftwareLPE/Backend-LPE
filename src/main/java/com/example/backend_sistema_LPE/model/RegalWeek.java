@@ -42,13 +42,17 @@ public class RegalWeek {
     @Column(name = "week_date", nullable = false)
     private LocalDate weekDate;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "shift_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "shift_id")
     private Shift shift;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "driver_id")
     private Driver driver;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "manual_regal_row_id")
+    private RegalManualRow manualRow;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)

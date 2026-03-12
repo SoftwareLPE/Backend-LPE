@@ -7,8 +7,12 @@ import com.example.backend_sistema_LPE.model.Plant;
 import com.example.backend_sistema_LPE.repository.CompanyRepository;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
+import com.example.backend_sistema_LPE.repository.CascadaStandardManualRowRepository;
+import com.example.backend_sistema_LPE.repository.FlexsurManualRowRepository;
+import com.example.backend_sistema_LPE.repository.FlexsurServiceDriverAssignmentRepository;
 import com.example.backend_sistema_LPE.repository.FormatWeekManualRowRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
+import com.example.backend_sistema_LPE.repository.RegalManualRowRepository;
 import com.example.backend_sistema_LPE.repository.RoleCompanyRepository;
 import com.example.backend_sistema_LPE.repository.RolePlantRepository;
 import com.example.backend_sistema_LPE.repository.ShiftRepository;
@@ -29,7 +33,11 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
     private final RolePlantRepository rolePlantRepository;
     private final DriverRepository driverRepository;
     private final DriverRouteRepository driverRouteRepository;
+    private final CascadaStandardManualRowRepository cascadaStandardManualRowRepository;
+    private final FlexsurManualRowRepository flexsurManualRowRepository;
+    private final FlexsurServiceDriverAssignmentRepository flexsurServiceDriverAssignmentRepository;
     private final FormatWeekManualRowRepository formatWeekManualRowRepository;
+    private final RegalManualRowRepository regalManualRowRepository;
     private final ShiftRepository shiftRepository;
 
     public CompanyAdminServiceImpl(
@@ -41,7 +49,11 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
             RolePlantRepository rolePlantRepository,
             DriverRepository driverRepository,
             DriverRouteRepository driverRouteRepository,
+            CascadaStandardManualRowRepository cascadaStandardManualRowRepository,
+            FlexsurManualRowRepository flexsurManualRowRepository,
+            FlexsurServiceDriverAssignmentRepository flexsurServiceDriverAssignmentRepository,
             FormatWeekManualRowRepository formatWeekManualRowRepository,
+            RegalManualRowRepository regalManualRowRepository,
             ShiftRepository shiftRepository
     ) {
         this.companyRepository = companyRepository;
@@ -52,7 +64,11 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
         this.rolePlantRepository = rolePlantRepository;
         this.driverRepository = driverRepository;
         this.driverRouteRepository = driverRouteRepository;
+        this.cascadaStandardManualRowRepository = cascadaStandardManualRowRepository;
+        this.flexsurManualRowRepository = flexsurManualRowRepository;
+        this.flexsurServiceDriverAssignmentRepository = flexsurServiceDriverAssignmentRepository;
         this.formatWeekManualRowRepository = formatWeekManualRowRepository;
+        this.regalManualRowRepository = regalManualRowRepository;
         this.shiftRepository = shiftRepository;
     }
 
@@ -151,7 +167,11 @@ public class CompanyAdminServiceImpl implements CompanyAdminService{
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new RuntimeException("Company not found " + companyId));
 
+        cascadaStandardManualRowRepository.deleteByPlantCompanyCompanyId(companyId);
+        flexsurManualRowRepository.deleteByPlantCompanyCompanyId(companyId);
+        flexsurServiceDriverAssignmentRepository.deleteByPlantCompanyCompanyId(companyId);
         formatWeekManualRowRepository.deleteByPlantCompanyCompanyId(companyId);
+        regalManualRowRepository.deleteByPlantCompanyCompanyId(companyId);
         shiftRepository.deleteByPlantCompanyCompanyId(companyId);
         driverRouteRepository.deleteByDriverPlantCompanyCompanyId(companyId);
         driverRepository.deleteByPlantCompanyCompanyId(companyId);

@@ -11,7 +11,7 @@ import lombok.Setter;
 @NoArgsConstructor
 @Table(
         name = "cascada_standard_cell",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"cascada_standard_week_id", "day_key", "driver_id", "route_id"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"cascada_standard_week_id", "day_key", "driver_id", "route_id", "manual_standard_row_id"})
 )
 public class CascadaStandardCell {
     @Id
@@ -25,12 +25,16 @@ public class CascadaStandardCell {
     @Column(name = "day_key", nullable = false)
     private String dayKey;
 
-    @ManyToOne(optional = false, fetch = FetchType.LAZY)
-    @JoinColumn(name = "driver_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "driver_id")
     private Driver driver;
 
     @Column(name = "route_id")
     private Long routeId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "manual_standard_row_id")
+    private CascadaStandardManualRow manualRow;
 
     @Column(name = "val_e")
     private String e;

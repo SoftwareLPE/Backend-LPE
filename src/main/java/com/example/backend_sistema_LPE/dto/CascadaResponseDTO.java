@@ -16,5 +16,6 @@ public class CascadaResponseDTO {
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekStartDate;
 
+    private List<CascadaStandardManualRowDTO> manualRows;
     private List<CascadaRowDTO> rows;
 }

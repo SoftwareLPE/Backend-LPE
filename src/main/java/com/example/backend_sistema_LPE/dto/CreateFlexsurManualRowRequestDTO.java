@@ -7,17 +7,17 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDate;
-import java.util.List;
 
 @Getter
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class RegalWeekResponseDTO {
+public class CreateFlexsurManualRowRequestDTO {
     private Long plantId;
+
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;
-    private Long shiftId;
-    private List<RegalWeekRowDTO> rows;
-    private RegalWeekTotalsDTO totals;
+
+    private String serviceName;
+    private Integer sortOrder;
 }

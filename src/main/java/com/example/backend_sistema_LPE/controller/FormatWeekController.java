@@ -4,13 +4,20 @@ import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekResponseDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekSchemaDTO;
+import com.example.backend_sistema_LPE.dto.CreateFormatWeekManualRowRequestDTO;
+import com.example.backend_sistema_LPE.dto.FormatWeekManualRowDTO;
+import com.example.backend_sistema_LPE.dto.UpdateFormatWeekManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.CascadaStatusUpdateRequestDTO;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
 import com.example.backend_sistema_LPE.service.FormatWeekService;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -52,6 +59,38 @@ public class FormatWeekController {
             userId = principal.getUserId();
         }
         formatWeekService.saveFormatWeek(request, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/manual-rows")
+    public ResponseEntity<FormatWeekManualRowDTO> createManualRow(
+            @RequestBody CreateFormatWeekManualRowRequestDTO request,
+            Authentication authentication
+    ) {
+        Long userId = null;
+        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal principal) {
+            userId = principal.getUserId();
+        }
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(formatWeekService.createManualRow(request, userId));
+    }
+
+    @PatchMapping("/manual-rows/{manualRowId}")
+    public ResponseEntity<FormatWeekManualRowDTO> updateManualRow(
+            @PathVariable Long manualRowId,
+            @RequestBody UpdateFormatWeekManualRowRequestDTO request,
+            Authentication authentication
+    ) {
+        Long userId = null;
+        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal principal) {
+            userId = principal.getUserId();
+        }
+        return ResponseEntity.ok(formatWeekService.updateManualRow(manualRowId, request, userId));
+    }
+
+    @DeleteMapping("/manual-rows/{manualRowId}")
+    public ResponseEntity<Void> deleteManualRow(@PathVariable Long manualRowId) {
+        formatWeekService.deleteManualRow(manualRowId);
         return ResponseEntity.noContent().build();
     }
 

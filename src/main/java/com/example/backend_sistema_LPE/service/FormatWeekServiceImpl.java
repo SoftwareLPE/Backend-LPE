@@ -1,6 +1,7 @@
 package com.example.backend_sistema_LPE.service;
 
 import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
+import com.example.backend_sistema_LPE.dto.CreateFormatWeekManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekCellDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekManualRowDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekResponseDTO;
@@ -9,6 +10,7 @@ import com.example.backend_sistema_LPE.dto.FormatWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekSchemaDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekTurnDTO;
 import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
+import com.example.backend_sistema_LPE.dto.UpdateFormatWeekManualRowRequestDTO;
 import com.example.backend_sistema_LPE.enums.CascadaStatus;
 import com.example.backend_sistema_LPE.model.Driver;
 import com.example.backend_sistema_LPE.model.CascadaRecipient;
@@ -203,6 +205,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             week.setStatus(CascadaStatus.DRAFT);
 
             FormatWeekManualRow manualRow = resolveManualRow(row, persistedManualRows);
+            if (isManualRow(row) && manualRow == null) {
+                throw new RuntimeException("Manual row not found: " + row.getManualRowId());
+            }
             if (manualRow != null) {
                 week.setManualRow(manualRow);
                 week.setUnitType(manualRow.getUnitType());
@@ -247,6 +252,132 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             week.setCells(weekCells);
             formatWeekRepository.save(week);
         }
+    }
+
+    @Override
+    @Transactional
+    public FormatWeekManualRowDTO createManualRow(CreateFormatWeekManualRowRequestDTO request, Long userId) {
+        if (request.getPlantId() == null) {
+            throw new RuntimeException("plantId is required");
+        }
+        if (request.getFormatTypeId() == null) {
+            throw new RuntimeException("formatTypeId is required");
+        }
+        if (request.getWeekDate() == null) {
+            throw new RuntimeException("weekDate is required");
+        }
+
+        Plant plant = plantRepository.findById(request.getPlantId())
+                .orElseThrow(() -> new RuntimeException("Plant not found"));
+        FormatType formatType = formatTypeRepository.findById(request.getFormatTypeId())
+                .orElseThrow(() -> new RuntimeException("Format type not found"));
+
+        if (plant.getFormatTypeId() == null || !request.getFormatTypeId().equals(plant.getFormatTypeId())) {
+            throw new RuntimeException("formatTypeId does not belong to plant");
+        }
+
+        List<FormatWeekManualRow> existing = formatWeekManualRowRepository
+                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
+                        request.getPlantId(),
+                        request.getFormatTypeId(),
+                        request.getWeekDate()
+                );
+
+        int nextSortOrder = existing.stream()
+                .map(FormatWeekManualRow::getSortOrder)
+                .filter(java.util.Objects::nonNull)
+                .max(Integer::compareTo)
+                .map(value -> value + 1)
+                .orElse(existing.size());
+
+        FormatWeekManualRow manualRow = new FormatWeekManualRow();
+        manualRow.setPlant(plant);
+        manualRow.setFormatType(formatType);
+        manualRow.setWeekDate(request.getWeekDate());
+        manualRow.setRouteName(trimToNull(request.getRouteName()));
+        manualRow.setDriverName(trimToNull(request.getDriverName()));
+        manualRow.setDriverLastName(trimToNull(request.getDriverLastName()));
+        manualRow.setUnitType(trimToNull(request.getUnitType()));
+        manualRow.setSecondaryValue(trimToNull(request.getSecondaryValue()));
+        manualRow.setExtraRow(request.getExtraRow() == null ? Boolean.TRUE : request.getExtraRow());
+        manualRow.setSortOrder(request.getSortOrder() == null ? nextSortOrder : request.getSortOrder());
+        manualRow.setUpdatedAt(LocalDateTime.now());
+        manualRow.setUpdatedByUserId(userId);
+
+        FormatWeekManualRow saved = formatWeekManualRowRepository.save(manualRow);
+        return new FormatWeekManualRowDTO(
+                saved.getManualRowId(),
+                saved.getRouteName(),
+                saved.getDriverName(),
+                saved.getDriverLastName(),
+                saved.getUnitType(),
+                saved.getSecondaryValue(),
+                saved.getExtraRow(),
+                saved.getSortOrder()
+        );
+    }
+
+    @Override
+    @Transactional
+    public FormatWeekManualRowDTO updateManualRow(
+            Long manualRowId,
+            UpdateFormatWeekManualRowRequestDTO request,
+            Long userId
+    ) {
+        if (manualRowId == null) {
+            throw new RuntimeException("manualRowId is required");
+        }
+
+        FormatWeekManualRow manualRow = formatWeekManualRowRepository.findById(manualRowId)
+                .orElseThrow(() -> new RuntimeException("Manual row not found"));
+
+        if (request.getRouteName() != null) {
+            manualRow.setRouteName(trimToNull(request.getRouteName()));
+        }
+        if (request.getDriverName() != null) {
+            manualRow.setDriverName(trimToNull(request.getDriverName()));
+        }
+        if (request.getDriverLastName() != null) {
+            manualRow.setDriverLastName(trimToNull(request.getDriverLastName()));
+        }
+        if (request.getUnitType() != null) {
+            manualRow.setUnitType(trimToNull(request.getUnitType()));
+        }
+        if (request.getSecondaryValue() != null) {
+            manualRow.setSecondaryValue(trimToNull(request.getSecondaryValue()));
+        }
+        if (request.getExtraRow() != null) {
+            manualRow.setExtraRow(request.getExtraRow());
+        }
+        if (request.getSortOrder() != null) {
+            manualRow.setSortOrder(request.getSortOrder());
+        }
+        manualRow.setUpdatedAt(LocalDateTime.now());
+        manualRow.setUpdatedByUserId(userId);
+
+        FormatWeekManualRow saved = formatWeekManualRowRepository.save(manualRow);
+        return new FormatWeekManualRowDTO(
+                saved.getManualRowId(),
+                saved.getRouteName(),
+                saved.getDriverName(),
+                saved.getDriverLastName(),
+                saved.getUnitType(),
+                saved.getSecondaryValue(),
+                saved.getExtraRow(),
+                saved.getSortOrder()
+        );
+    }
+
+    @Override
+    @Transactional
+    public void deleteManualRow(Long manualRowId) {
+        if (manualRowId == null) {
+            throw new RuntimeException("manualRowId is required");
+        }
+
+        FormatWeekManualRow manualRow = formatWeekManualRowRepository.findById(manualRowId)
+                .orElseThrow(() -> new RuntimeException("Manual row not found"));
+        deleteManualRowsAndCounts(List.of(manualRow));
     }
 
     @Override
@@ -778,7 +909,14 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         boolean explicitManualRows = request.getManualRows() != null;
         List<FormatWeekManualRowDTO> requestedManualRows = request.getManualRows();
         if (requestedManualRows == null) {
-            requestedManualRows = inferManualRowsFromShiftPayload(request.getRows());
+            boolean hasNewManualRowsInPayload = request.getRows() != null && request.getRows().stream()
+                    .filter(this::isManualRow)
+                    .anyMatch(row -> row.getManualRowId() == null);
+            if (hasNewManualRowsInPayload) {
+                requestedManualRows = inferManualRowsFromShiftPayload(request.getRows());
+            } else {
+                return existing;
+            }
         }
 
         if (requestedManualRows == null) {
@@ -868,14 +1006,20 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         if (!isManualRow(row)) {
             return null;
         }
+        if (row.getManualRowId() != null) {
+            if (persistedManualRows != null && !persistedManualRows.isEmpty()) {
+                FormatWeekManualRow persisted = persistedManualRows.stream()
+                        .filter(manualRow -> row.getManualRowId().equals(manualRow.getManualRowId()))
+                        .findFirst()
+                        .orElse(null);
+                if (persisted != null) {
+                    return persisted;
+                }
+            }
+            return formatWeekManualRowRepository.findById(row.getManualRowId()).orElse(null);
+        }
         if (persistedManualRows == null || persistedManualRows.isEmpty()) {
             return null;
-        }
-        if (row.getManualRowId() != null) {
-            return persistedManualRows.stream()
-                    .filter(manualRow -> row.getManualRowId().equals(manualRow.getManualRowId()))
-                    .findFirst()
-                    .orElse(null);
         }
         String signature = manualRowSignature(
                 row.getRouteName(),

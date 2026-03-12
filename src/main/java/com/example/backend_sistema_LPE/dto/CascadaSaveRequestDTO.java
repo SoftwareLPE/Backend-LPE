@@ -15,5 +15,8 @@ public class CascadaSaveRequestDTO {
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;
 
+    private String dayKey;
+    private List<CascadaStandardManualRowDTO> manualRows;
+    private List<CascadaRowDTO> rows;
     private Map<String, List<CascadaRowDTO>> days;
 }

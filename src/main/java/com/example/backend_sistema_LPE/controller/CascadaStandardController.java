@@ -2,13 +2,17 @@ package com.example.backend_sistema_LPE.controller;
 
 import com.example.backend_sistema_LPE.dto.CascadaResponseDTO;
 import com.example.backend_sistema_LPE.dto.CascadaSaveRequestDTO;
+import com.example.backend_sistema_LPE.dto.CascadaStandardManualRowDTO;
 import com.example.backend_sistema_LPE.dto.CascadaStatusUpdateRequestDTO;
 import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
 import com.example.backend_sistema_LPE.dto.CascadaWeekResponseDTO;
+import com.example.backend_sistema_LPE.dto.CreateCascadaStandardManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.StandardWeeklyResponseDTO;
+import com.example.backend_sistema_LPE.dto.UpdateCascadaStandardManualRowRequestDTO;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
 import com.example.backend_sistema_LPE.service.CascadaStandardService;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -41,6 +45,38 @@ public class CascadaStandardController {
     @PutMapping
     public ResponseEntity<Void> saveCascada(@RequestBody CascadaSaveRequestDTO request) {
         cascadaStandardService.saveCascada(request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/manual-rows")
+    public ResponseEntity<CascadaStandardManualRowDTO> createManualRow(
+            @RequestBody CreateCascadaStandardManualRowRequestDTO request,
+            Authentication authentication
+    ) {
+        Long userId = null;
+        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal principal) {
+            userId = principal.getUserId();
+        }
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(cascadaStandardService.createManualRow(request, userId));
+    }
+
+    @PatchMapping("/manual-rows/{manualStandardRowId}")
+    public ResponseEntity<CascadaStandardManualRowDTO> updateManualRow(
+            @PathVariable Long manualStandardRowId,
+            @RequestBody UpdateCascadaStandardManualRowRequestDTO request,
+            Authentication authentication
+    ) {
+        Long userId = null;
+        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal principal) {
+            userId = principal.getUserId();
+        }
+        return ResponseEntity.ok(cascadaStandardService.updateManualRow(manualStandardRowId, request, userId));
+    }
+
+    @DeleteMapping("/manual-rows/{manualStandardRowId}")
+    public ResponseEntity<Void> deleteManualRow(@PathVariable Long manualStandardRowId) {
+        cascadaStandardService.deleteManualRow(manualStandardRowId);
         return ResponseEntity.noContent().build();
     }
 

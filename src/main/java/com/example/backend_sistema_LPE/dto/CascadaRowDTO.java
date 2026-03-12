@@ -5,6 +5,7 @@ import lombok.Data;
 
 @Data
 public class CascadaRowDTO {
+    private Long manualStandardRowId;
     private Long driverId;
     private String driverName;
     private String lastName;
