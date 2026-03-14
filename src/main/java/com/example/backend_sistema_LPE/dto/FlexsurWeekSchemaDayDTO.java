@@ -13,12 +13,10 @@ import java.util.List;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class FormatWeekResponseDTO {
-    private Long plantId;
+public class FlexsurWeekSchemaDayDTO {
+    private String dayKey;
+    private String dayLabel;
     @JsonFormat(pattern = "yyyy-MM-dd")
-    private LocalDate weekDate;
-    private Long shiftId;
-    private Long formatTypeId;
-    private List<FormatWeekRowDTO> rows;
-    private FormatWeekTotalsDTO totals;
+    private LocalDate serviceDate;
+    private List<FlexsurWeekSchemaColumnDTO> columns;
 }

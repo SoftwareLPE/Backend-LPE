@@ -13,6 +13,8 @@ public interface ShiftRepository extends JpaRepository<Shift, Long> {
 
     Optional<Shift> findByShiftIdAndPlantPlantId(Long shiftId, Long plantId);
 
+    Optional<Shift> findByPlantPlantIdAndShiftName(Long plantId, String shiftName);
+
     void deleteByPlantPlantId(Long plantId);
 
     void deleteByPlantCompanyCompanyId(Long companyId);

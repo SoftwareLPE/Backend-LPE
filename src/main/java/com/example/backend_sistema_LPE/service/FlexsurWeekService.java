@@ -3,12 +3,15 @@ package com.example.backend_sistema_LPE.service;
 import com.example.backend_sistema_LPE.dto.CreateFlexsurManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurManualRowDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekResponseDTO;
+import com.example.backend_sistema_LPE.dto.FlexsurWeekSchemaDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.UpdateFlexsurManualRowRequestDTO;
 
 import java.time.LocalDate;
 
 public interface FlexsurWeekService {
+    FlexsurWeekSchemaDTO getFlexsurWeekSchema(Long plantId, LocalDate weekDate);
+
     FlexsurWeekResponseDTO getFlexsurWeek(Long plantId, LocalDate weekDate);
 
     void saveFlexsurWeek(FlexsurWeekSaveRequestDTO request, Long userId);

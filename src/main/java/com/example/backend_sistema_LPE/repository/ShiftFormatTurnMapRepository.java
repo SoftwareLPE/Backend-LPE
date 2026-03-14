@@ -8,5 +8,17 @@ import java.util.List;
 public interface ShiftFormatTurnMapRepository extends JpaRepository<ShiftFormatTurnMap, Long> {
     List<ShiftFormatTurnMap> findByPlantPlantIdAndFormatTypeFormatTypeId(Long plantId, Long formatTypeId);
 
+    List<ShiftFormatTurnMap> findByPlantPlantIdAndFormatTypeFormatTypeIdAndShiftShiftId(
+            Long plantId,
+            Long formatTypeId,
+            Long shiftId
+    );
+
     void deleteByPlantPlantIdAndFormatTypeFormatTypeId(Long plantId, Long formatTypeId);
+
+    void deleteByPlantPlantIdAndFormatTypeFormatTypeIdAndShiftShiftId(
+            Long plantId,
+            Long formatTypeId,
+            Long shiftId
+    );
 }

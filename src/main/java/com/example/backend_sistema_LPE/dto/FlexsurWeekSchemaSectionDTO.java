@@ -11,10 +11,7 @@ import java.util.List;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class FlexsurWeekRowDTO {
-    private Long flexsurWeekId;
-    private Long manualFlexsurRowId;
-    private String serviceName;
-    private List<FlexsurDetailDTO> details;
-    private Integer rowTotal;
+public class FlexsurWeekSchemaSectionDTO {
+    private String key;
+    private List<FlexsurWeekSchemaDayDTO> days;
 }

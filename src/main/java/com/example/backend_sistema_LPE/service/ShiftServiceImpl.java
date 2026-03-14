@@ -7,14 +7,22 @@ import com.example.backend_sistema_LPE.model.FormatTurnConfig;
 import com.example.backend_sistema_LPE.model.FormatType;
 import com.example.backend_sistema_LPE.model.Shift;
 import com.example.backend_sistema_LPE.model.Plant;
+import com.example.backend_sistema_LPE.model.ShiftFormatTurnMap;
 import com.example.backend_sistema_LPE.repository.FormatTurnConfigRepository;
 import com.example.backend_sistema_LPE.repository.FormatTypeRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.ShiftRepository;
+import com.example.backend_sistema_LPE.repository.ShiftFormatTurnMapRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
+import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class ShiftServiceImpl implements ShiftService {
@@ -22,17 +30,20 @@ public class ShiftServiceImpl implements ShiftService {
     private final PlantRepository plantRepository;
     private final FormatTypeRepository formatTypeRepository;
     private final FormatTurnConfigRepository formatTurnConfigRepository;
+    private final ShiftFormatTurnMapRepository shiftFormatTurnMapRepository;
 
     public ShiftServiceImpl(
             ShiftRepository shiftRepository,
             PlantRepository plantRepository,
             FormatTypeRepository formatTypeRepository,
-            FormatTurnConfigRepository formatTurnConfigRepository
+            FormatTurnConfigRepository formatTurnConfigRepository,
+            ShiftFormatTurnMapRepository shiftFormatTurnMapRepository
     ) {
         this.shiftRepository = shiftRepository;
         this.plantRepository = plantRepository;
         this.formatTypeRepository = formatTypeRepository;
         this.formatTurnConfigRepository = formatTurnConfigRepository;
+        this.shiftFormatTurnMapRepository = shiftFormatTurnMapRepository;
     }
 
     @Override
@@ -49,6 +60,30 @@ public class ShiftServiceImpl implements ShiftService {
         Plant plant = plantRepository.findById(plantId)
                 .orElseThrow(() -> new RuntimeException("Plant not found " + plantId));
 
+        Shift existingShift = findExistingShiftByNormalizedName(plantId, request.getShiftName());
+        if (existingShift != null) {
+            String oldShiftName = existingShift.getShiftName();
+            Set<String> oldDayKeys = existingShift.getDayKeys() == null
+                    ? Set.of()
+                    : new HashSet<>(existingShift.getDayKeys());
+
+            existingShift.setShiftName(request.getShiftName().trim());
+            existingShift.setStartTime(request.getStartTime());
+            existingShift.setEndTime(request.getEndTime());
+            existingShift.setDayKeys(request.getDayKeys());
+
+            Shift savedExisting = shiftRepository.save(existingShift);
+            syncTurnConfigForUpdate(
+                    plant,
+                    oldShiftName,
+                    oldDayKeys,
+                    savedExisting.getShiftName(),
+                    savedExisting.getDayKeys()
+            );
+            syncShiftMappingsForShift(plant, savedExisting);
+            return toDTO(savedExisting);
+        }
+
         Shift shift = new Shift();
         shift.setPlant(plant);
         shift.setShiftName(request.getShiftName().trim());
@@ -58,6 +93,7 @@ public class ShiftServiceImpl implements ShiftService {
 
         Shift saved = shiftRepository.save(shift);
         syncTurnConfigForShift(plant, saved.getShiftName(), saved.getDayKeys());
+        syncShiftMappingsForShift(plant, saved);
         return toDTO(saved);
     }
 
@@ -97,6 +133,7 @@ public class ShiftServiceImpl implements ShiftService {
 
         Shift saved = shiftRepository.save(shift);
         syncTurnConfigForUpdate(saved.getPlant(), oldShiftName, oldDayKeys, saved.getShiftName(), saved.getDayKeys());
+        syncShiftMappingsForShift(saved.getPlant(), saved);
         return toDTO(saved);
     }
 
@@ -105,6 +142,7 @@ public class ShiftServiceImpl implements ShiftService {
     public void deleteShift(Long plantId, Long shiftId) {
         Shift shift = shiftRepository.findByShiftIdAndPlantPlantId(shiftId, plantId)
                 .orElseThrow(() -> new RuntimeException("Shift not found " + shiftId));
+        deleteShiftMappings(shift.getPlant(), shift.getShiftId());
         deleteTurnConfigForShift(shift.getPlant(), shift.getShiftName(), shift.getDayKeys());
         shiftRepository.delete(shift);
     }
@@ -190,6 +228,64 @@ public class ShiftServiceImpl implements ShiftService {
         }
     }
 
+    private void syncShiftMappingsForShift(Plant plant, Shift shift) {
+        FormatType formatType = resolveFormatType(plant);
+        if (formatType == null || shift == null || shift.getShiftId() == null) {
+            return;
+        }
+
+        String normalizedName = normalizeTurnName(shift.getShiftName());
+        Set<String> normalizedDays = normalizeDayKeys(shift.getDayKeys());
+        List<ShiftFormatTurnMap> existingMappings = shiftFormatTurnMapRepository
+                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndShiftShiftId(
+                        plant.getPlantId(),
+                        formatType.getFormatTypeId(),
+                        shift.getShiftId()
+                );
+        Map<String, ShiftFormatTurnMap> existingByDay = new HashMap<>();
+        for (ShiftFormatTurnMap existing : existingMappings) {
+            existingByDay.put(existing.getDayOfWeek(), existing);
+        }
+        if (normalizedDays.isEmpty()) {
+            if (!existingMappings.isEmpty()) {
+                shiftFormatTurnMapRepository.deleteAll(existingMappings);
+            }
+            return;
+        }
+
+        List<ShiftFormatTurnMap> mappings = new ArrayList<>();
+        for (String dayKey : normalizedDays) {
+            FormatTurnConfig config = formatTurnConfigRepository
+                    .findByFormatTypeFormatTypeIdAndDayOfWeekAndTurnName(
+                            formatType.getFormatTypeId(),
+                            dayKey,
+                            normalizedName
+                    )
+                    .orElseThrow(() -> new RuntimeException(
+                            "No turnConfig mapping found for shift name: " + normalizedName
+                    ));
+
+            ShiftFormatTurnMap map = existingByDay.remove(config.getDayOfWeek());
+            if (map == null) {
+                map = new ShiftFormatTurnMap();
+                map.setPlant(plant);
+                map.setFormatType(formatType);
+                map.setShift(shift);
+            }
+            map.setDayOfWeek(config.getDayOfWeek());
+            map.setTurnName(config.getTurnName());
+            mappings.add(map);
+        }
+
+        if (!existingByDay.isEmpty()) {
+            shiftFormatTurnMapRepository.deleteAll(existingByDay.values());
+        }
+
+        if (!mappings.isEmpty()) {
+            shiftFormatTurnMapRepository.saveAll(mappings);
+        }
+    }
+
     private void deleteTurnConfigForShift(Plant plant, String shiftName, java.util.Set<String> dayKeys) {
         FormatType formatType = resolveFormatType(plant);
         if (formatType == null) {
@@ -205,6 +301,18 @@ public class ShiftServiceImpl implements ShiftService {
                     normalizedName
             );
         }
+    }
+
+    private void deleteShiftMappings(Plant plant, Long shiftId) {
+        FormatType formatType = resolveFormatType(plant);
+        if (formatType == null || plant == null || shiftId == null) {
+            return;
+        }
+        shiftFormatTurnMapRepository.deleteByPlantPlantIdAndFormatTypeFormatTypeIdAndShiftShiftId(
+                plant.getPlantId(),
+                formatType.getFormatTypeId(),
+                shiftId
+        );
     }
 
     private FormatType resolveFormatType(Plant plant) {
@@ -230,7 +338,22 @@ public class ShiftServiceImpl implements ShiftService {
     }
 
     private String normalizeTurnName(String shiftName) {
-        return shiftName == null ? "" : shiftName.trim().toUpperCase();
+        if (shiftName == null) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(shiftName.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return normalized.toUpperCase();
+    }
+
+    private Shift findExistingShiftByNormalizedName(Long plantId, String shiftName) {
+        String normalizedName = normalizeTurnName(shiftName);
+        return shiftRepository.findByPlantPlantId(plantId).stream()
+                .filter(shift -> normalizeTurnName(shift.getShiftName()).equals(normalizedName))
+                .findFirst()
+                .orElse(null);
     }
 
     private int resolveSortOrder(String turnName) {

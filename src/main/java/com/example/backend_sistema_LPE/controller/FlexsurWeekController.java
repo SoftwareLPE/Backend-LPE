@@ -5,6 +5,7 @@ import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
 import com.example.backend_sistema_LPE.dto.CreateFlexsurManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurManualRowDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekResponseDTO;
+import com.example.backend_sistema_LPE.dto.FlexsurWeekSchemaDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.UpdateFlexsurManualRowRequestDTO;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
@@ -34,6 +35,14 @@ public class FlexsurWeekController {
 
     public FlexsurWeekController(FlexsurWeekService flexsurWeekService) {
         this.flexsurWeekService = flexsurWeekService;
+    }
+
+    @GetMapping("/schema")
+    public ResponseEntity<FlexsurWeekSchemaDTO> getFlexsurWeekSchema(
+            @RequestParam Long plantId,
+            @RequestParam("weekDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekDate
+    ) {
+        return ResponseEntity.ok(flexsurWeekService.getFlexsurWeekSchema(plantId, weekDate));
     }
 
     @GetMapping

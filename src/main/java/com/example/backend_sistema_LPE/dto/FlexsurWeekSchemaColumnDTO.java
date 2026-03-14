@@ -9,11 +9,8 @@ import lombok.Setter;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class FormatTurnConfigDTO {
-    private Long turnConfigId;
-    private Long formatTypeId;
-    private Long shiftId;
-    private String dayOfWeek;
-    private String turnName;
+public class FlexsurWeekSchemaColumnDTO {
+    private String key;
+    private String label;
     private Integer sortOrder;
 }

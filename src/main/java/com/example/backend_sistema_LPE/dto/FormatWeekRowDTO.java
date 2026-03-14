@@ -23,4 +23,5 @@ public class FormatWeekRowDTO {
     private String secondaryValue;
     private Boolean extraRow;
     private List<FormatWeekCellDTO> cells;
+    private Integer rowTotal;
 }

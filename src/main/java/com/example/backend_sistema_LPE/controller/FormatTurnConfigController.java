@@ -21,8 +21,9 @@ public class FormatTurnConfigController {
 
     @GetMapping
     public ResponseEntity<List<FormatTurnConfigDTO>> getByFormatType(
-            @RequestParam Long formatTypeId
+            @RequestParam Long formatTypeId,
+            @RequestParam(required = false) Long plantId
     ) {
-        return ResponseEntity.ok(formatTurnConfigService.getByFormatType(formatTypeId));
+        return ResponseEntity.ok(formatTurnConfigService.getByFormatType(formatTypeId, plantId));
     }
 }

@@ -8,6 +8,7 @@ import com.example.backend_sistema_LPE.dto.FormatWeekResponseDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekRowDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekSchemaDTO;
+import com.example.backend_sistema_LPE.dto.FormatWeekTotalsDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekTurnDTO;
 import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
 import com.example.backend_sistema_LPE.dto.UpdateFormatWeekManualRowRequestDTO;
@@ -30,6 +31,7 @@ import com.example.backend_sistema_LPE.repository.FormatTurnConfigRepository;
 import com.example.backend_sistema_LPE.repository.FormatTypeRepository;
 import com.example.backend_sistema_LPE.repository.FormatWeekRepository;
 import com.example.backend_sistema_LPE.repository.FormatWeekManualRowRepository;
+import com.example.backend_sistema_LPE.repository.ShiftFormatTurnMapRepository;
 import com.example.backend_sistema_LPE.repository.CascadaRecipientRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.RouteRepository;
@@ -60,6 +62,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     private final RouteRepository routeRepository;
     private final DriverRepository driverRepository;
     private final DriverPlantAssignmentRepository driverPlantAssignmentRepository;
+    private final ShiftFormatTurnMapRepository shiftFormatTurnMapRepository;
     private final CascadaRecipientRepository cascadaRecipientRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
@@ -74,6 +77,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             RouteRepository routeRepository,
             DriverRepository driverRepository,
             DriverPlantAssignmentRepository driverPlantAssignmentRepository,
+            ShiftFormatTurnMapRepository shiftFormatTurnMapRepository,
             CascadaRecipientRepository cascadaRecipientRepository,
             UserRepository userRepository,
             SimpMessagingTemplate messagingTemplate
@@ -87,6 +91,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         this.routeRepository = routeRepository;
         this.driverRepository = driverRepository;
         this.driverPlantAssignmentRepository = driverPlantAssignmentRepository;
+        this.shiftFormatTurnMapRepository = shiftFormatTurnMapRepository;
         this.cascadaRecipientRepository = cascadaRecipientRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
@@ -117,19 +122,34 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                         formatTypeId
                 );
 
+        List<FormatTurnConfig> allTurnConfigs = formatTurnConfigRepository
+                .findByFormatTypeFormatTypeId(formatTypeId);
+        Map<Long, Long> shiftIdByTurnConfigId = buildShiftIdByTurnConfigId(plantId, formatTypeId, allTurnConfigs);
+        List<FormatTurnConfig> turnConfigs = filterTurnConfigsForShift(allTurnConfigs, shiftIdByTurnConfigId, shiftId);
+
+        Map<Long, FormatTurnConfig> turnConfigById = allTurnConfigs.stream()
+                .collect(Collectors.toMap(FormatTurnConfig::getTurnConfigId, config -> config));
+
         List<FormatWeekRowDTO> savedRows = weeks.stream()
                 .map(this::toRowDTO)
+                .map(row -> filterRowCellsByShift(row, shiftIdByTurnConfigId, turnConfigById, shiftId))
                 .toList();
 
         if (shiftId == null) {
-            return new FormatWeekResponseDTO(plantId, weekDate, shiftId, formatTypeId, savedRows);
+            List<FormatWeekRowDTO> rows = new ArrayList<>(savedRows);
+            enrichRowTotals(rows);
+            return new FormatWeekResponseDTO(
+                    plantId,
+                    weekDate,
+                    shiftId,
+                    formatTypeId,
+                    rows,
+                    buildTotals(rows, turnConfigs)
+            );
         }
 
         FormatType formatType = formatTypeRepository.findById(formatTypeId)
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
-
-        List<FormatTurnConfig> turnConfigs = formatTurnConfigRepository
-                .findByFormatTypeFormatTypeId(formatTypeId);
         List<FormatWeekManualRow> manualRows = formatWeekManualRowRepository
                 .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
                         plantId,
@@ -151,7 +171,15 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             }
         }
 
-        return new FormatWeekResponseDTO(plantId, weekDate, shiftId, formatTypeId, rows);
+        enrichRowTotals(rows);
+        return new FormatWeekResponseDTO(
+                plantId,
+                weekDate,
+                shiftId,
+                formatTypeId,
+                rows,
+                buildTotals(rows, turnConfigs)
+        );
     }
 
     @Override
@@ -177,10 +205,16 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         FormatType formatType = formatTypeRepository.findById(request.getFormatTypeId())
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
 
-        Map<Long, FormatTurnConfig> turnConfigById = formatTurnConfigRepository
+        List<FormatTurnConfig> allTurnConfigs = formatTurnConfigRepository
                 .findByFormatTypeFormatTypeId(request.getFormatTypeId())
-                .stream()
+                ;
+        Map<Long, FormatTurnConfig> turnConfigById = allTurnConfigs.stream()
                 .collect(Collectors.toMap(FormatTurnConfig::getTurnConfigId, c -> c));
+        Map<Long, Long> shiftIdByTurnConfigId = buildShiftIdByTurnConfigId(
+                request.getPlantId(),
+                request.getFormatTypeId(),
+                allTurnConfigs
+        );
 
         List<FormatWeekManualRow> persistedManualRows = saveManualRows(
                 request,
@@ -241,6 +275,18 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 FormatTurnConfig config = turnConfigById.get(cellDTO.getTurnConfigId());
                 if (config == null) {
                     throw new RuntimeException("Invalid turnConfigId: " + cellDTO.getTurnConfigId());
+                }
+                Long mappedShiftId = shiftIdByTurnConfigId.get(cellDTO.getTurnConfigId());
+                if (mappedShiftId == null && !isFormatLevelColumn(config.getTurnName())) {
+                    throw new RuntimeException("turnConfigId has no shift mapping: " + cellDTO.getTurnConfigId());
+                }
+                if (mappedShiftId != null && !mappedShiftId.equals(request.getShiftId())) {
+                    throw new RuntimeException("turnConfigId does not belong to shiftId: " + cellDTO.getTurnConfigId());
+                }
+                if (cellDTO.getDayOfWeek() != null
+                        && config.getDayOfWeek() != null
+                        && !config.getDayOfWeek().equalsIgnoreCase(cellDTO.getDayOfWeek().trim())) {
+                    throw new RuntimeException("turnConfigId/dayOfWeek mismatch: " + cellDTO.getTurnConfigId());
                 }
                 FormatWeekCell cell = new FormatWeekCell();
                 cell.setFormatWeek(week);
@@ -662,7 +708,8 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 manualRow != null ? manualRow.getUnitType() : week.getUnitType(),
                 manualRow != null ? manualRow.getSecondaryValue() : week.getSecondaryValue(),
                 manualRow != null ? Boolean.TRUE : week.getRoute() == null && week.getDriver() == null,
-                cells
+                cells,
+                null
         );
     }
 
@@ -724,7 +771,8 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                         null,
                         formatType.getSecondaryColumn() == null ? null : route.getLocation(),
                         Boolean.FALSE,
-                        buildEmptyCells(turnConfigs)
+                        buildEmptyCells(turnConfigs),
+                        null
                 ))
                 .toList();
     }
@@ -759,7 +807,8 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                     null,
                     formatType.getSecondaryColumn() == null ? null : route == null ? null : route.getLocation(),
                     Boolean.FALSE,
-                    buildEmptyCells(turnConfigs)
+                    buildEmptyCells(turnConfigs),
+                    null
             ));
         }
 
@@ -797,7 +846,8 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                         row.getUnitType(),
                         row.getSecondaryValue(),
                         Boolean.TRUE.equals(row.getExtraRow()),
-                        buildEmptyCells(turnConfigs)
+                        buildEmptyCells(turnConfigs),
+                        null
                 ))
                 .toList();
     }
@@ -891,6 +941,136 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             }
             baseCell.setTripCount(savedCell.getTripCount());
         }
+    }
+
+    private Map<Long, Long> buildShiftIdByTurnConfigId(
+            Long plantId,
+            Long formatTypeId,
+            List<FormatTurnConfig> turnConfigs
+    ) {
+        if (plantId == null || formatTypeId == null || turnConfigs == null || turnConfigs.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Long> shiftByDayAndTurn = shiftFormatTurnMapRepository
+                .findByPlantPlantIdAndFormatTypeFormatTypeId(plantId, formatTypeId)
+                .stream()
+                .collect(Collectors.toMap(
+                        map -> normalizeTurnConfigKey(map.getDayOfWeek(), map.getTurnName()),
+                        map -> map.getShift().getShiftId(),
+                        (a, b) -> a
+                ));
+
+        Map<Long, Long> shiftIdByTurnConfigId = new LinkedHashMap<>();
+        for (FormatTurnConfig config : turnConfigs) {
+            shiftIdByTurnConfigId.put(
+                    config.getTurnConfigId(),
+                    shiftByDayAndTurn.get(normalizeTurnConfigKey(config.getDayOfWeek(), config.getTurnName()))
+            );
+        }
+        return shiftIdByTurnConfigId;
+    }
+
+    private List<FormatTurnConfig> filterTurnConfigsForShift(
+            List<FormatTurnConfig> turnConfigs,
+            Map<Long, Long> shiftIdByTurnConfigId,
+            Long shiftId
+    ) {
+        if (shiftId == null || turnConfigs == null || turnConfigs.isEmpty()) {
+            return turnConfigs == null ? List.of() : turnConfigs;
+        }
+        return turnConfigs.stream()
+                .filter(config -> {
+                    Long mappedShiftId = shiftIdByTurnConfigId.get(config.getTurnConfigId());
+                    if (mappedShiftId == null) {
+                        return isFormatLevelColumn(config.getTurnName());
+                    }
+                    return shiftId.equals(mappedShiftId);
+                })
+                .toList();
+    }
+
+    private FormatWeekRowDTO filterRowCellsByShift(
+            FormatWeekRowDTO row,
+            Map<Long, Long> shiftIdByTurnConfigId,
+            Map<Long, FormatTurnConfig> turnConfigById,
+            Long shiftId
+    ) {
+        if (row == null || shiftId == null || row.getCells() == null || row.getCells().isEmpty()) {
+            return row;
+        }
+        row.setCells(row.getCells().stream()
+                .filter(cell -> cell.getTurnConfigId() != null)
+                .filter(cell -> {
+                    Long mappedShiftId = shiftIdByTurnConfigId.get(cell.getTurnConfigId());
+                    if (mappedShiftId == null) {
+                        FormatTurnConfig config = turnConfigById.get(cell.getTurnConfigId());
+                        return config != null && isFormatLevelColumn(config.getTurnName());
+                    }
+                    return shiftId.equals(mappedShiftId);
+                })
+                .toList());
+        return row;
+    }
+
+    private String normalizeTurnConfigKey(String dayOfWeek, String turnName) {
+        String dayKey = dayOfWeek == null ? "" : dayOfWeek.trim().toLowerCase();
+        String normalizedTurnName = turnName == null ? "" : turnName.trim().toLowerCase();
+        return dayKey + "|" + normalizedTurnName;
+    }
+
+    private boolean isFormatLevelColumn(String turnName) {
+        if (turnName == null) {
+            return false;
+        }
+        return turnName.trim().toUpperCase().startsWith("TE");
+    }
+
+    private void enrichRowTotals(List<FormatWeekRowDTO> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        for (FormatWeekRowDTO row : rows) {
+            List<FormatWeekCellDTO> cells = row.getCells() == null ? List.of() : row.getCells();
+            int rowTotal = cells.stream()
+                    .mapToInt(cell -> cell.getTripCount() == null ? 0 : cell.getTripCount())
+                    .sum();
+            row.setRowTotal(rowTotal);
+        }
+    }
+
+    private FormatWeekTotalsDTO buildTotals(List<FormatWeekRowDTO> rows, List<FormatTurnConfig> turnConfigs) {
+        Map<String, Map<Long, Integer>> byDayAndTurn = new LinkedHashMap<>();
+        Map<String, Integer> byDay = new LinkedHashMap<>();
+
+        Map<String, List<FormatTurnConfig>> groupedConfigs = groupTurnConfigs(turnConfigs == null ? List.of() : turnConfigs);
+        for (var entry : groupedConfigs.entrySet()) {
+            Map<Long, Integer> turnTotals = new LinkedHashMap<>();
+            for (FormatTurnConfig config : entry.getValue()) {
+                turnTotals.put(config.getTurnConfigId(), 0);
+            }
+            byDayAndTurn.put(entry.getKey(), turnTotals);
+            byDay.put(entry.getKey(), 0);
+        }
+
+        int weekTotal = 0;
+        if (rows != null) {
+            for (FormatWeekRowDTO row : rows) {
+                List<FormatWeekCellDTO> cells = row.getCells() == null ? List.of() : row.getCells();
+                for (FormatWeekCellDTO cell : cells) {
+                    if (cell.getDayOfWeek() == null || cell.getTurnConfigId() == null) {
+                        continue;
+                    }
+                    int tripCount = cell.getTripCount() == null ? 0 : cell.getTripCount();
+                    Map<Long, Integer> turnTotals = byDayAndTurn.computeIfAbsent(cell.getDayOfWeek(), key -> new LinkedHashMap<>());
+                    turnTotals.put(cell.getTurnConfigId(), turnTotals.getOrDefault(cell.getTurnConfigId(), 0) + tripCount);
+                    byDay.put(cell.getDayOfWeek(), byDay.getOrDefault(cell.getDayOfWeek(), 0) + tripCount);
+                    weekTotal += tripCount;
+                }
+            }
+        }
+
+        return new FormatWeekTotalsDTO(byDayAndTurn, byDay, weekTotal);
     }
 
     private List<FormatWeekManualRow> saveManualRows(

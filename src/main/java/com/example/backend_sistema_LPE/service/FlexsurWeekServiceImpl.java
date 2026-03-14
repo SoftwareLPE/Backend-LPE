@@ -6,6 +6,10 @@ import com.example.backend_sistema_LPE.dto.FlexsurDetailDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurManualRowDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekResponseDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekRowDTO;
+import com.example.backend_sistema_LPE.dto.FlexsurWeekSchemaColumnDTO;
+import com.example.backend_sistema_LPE.dto.FlexsurWeekSchemaDTO;
+import com.example.backend_sistema_LPE.dto.FlexsurWeekSchemaDayDTO;
+import com.example.backend_sistema_LPE.dto.FlexsurWeekSchemaSectionDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekTotalsDTO;
 import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
@@ -28,10 +32,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.DayOfWeek;
+import java.time.format.TextStyle;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -60,6 +68,50 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
     }
 
     @Override
+    public FlexsurWeekSchemaDTO getFlexsurWeekSchema(Long plantId, LocalDate weekDate) {
+        if (plantId == null) {
+            throw new RuntimeException("plantId is required");
+        }
+        if (weekDate == null) {
+            throw new RuntimeException("weekDate is required");
+        }
+
+        LocalDate weekStart = weekDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+
+        List<FlexsurWeekSchemaColumnDTO> dayColumns = List.of(
+                new FlexsurWeekSchemaColumnDTO("trips", "VIAJES", 1),
+                new FlexsurWeekSchemaColumnDTO("columnExtra", "", 2),
+                new FlexsurWeekSchemaColumnDTO("total", "TOTAL", 3)
+        );
+
+        List<FlexsurWeekSchemaDayDTO> days = new ArrayList<>();
+        for (int offset = 0; offset < 7; offset++) {
+            LocalDate serviceDate = weekStart.plusDays(offset);
+            days.add(new FlexsurWeekSchemaDayDTO(
+                    mapDayKey(serviceDate),
+                    formatDayLabel(serviceDate),
+                    serviceDate,
+                    dayColumns
+            ));
+        }
+
+        List<FlexsurWeekSchemaSectionDTO> sections = List.of(
+                new FlexsurWeekSchemaSectionDTO("top", days.subList(0, Math.min(3, days.size()))),
+                new FlexsurWeekSchemaSectionDTO("middle", days.size() > 3 ? days.subList(3, Math.min(6, days.size())) : List.of()),
+                new FlexsurWeekSchemaSectionDTO("bottom", days.size() > 6 ? days.subList(6, days.size()) : List.of())
+        );
+
+        return new FlexsurWeekSchemaDTO(
+                plantId,
+                weekStart,
+                List.of("SERVICIOS"),
+                days,
+                sections,
+                "TOTAL SEMANAL"
+        );
+    }
+
+    @Override
     public FlexsurWeekResponseDTO getFlexsurWeek(Long plantId, LocalDate weekDate) {
         if (plantId == null) {
             throw new RuntimeException("plantId is required");
@@ -80,6 +132,7 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         List<FlexsurWeekRowDTO> baseRows = new ArrayList<>(buildCatalogRows(services));
         baseRows.addAll(buildManualRows(manualRows));
         List<FlexsurWeekRowDTO> rows = mergeRows(baseRows, savedRows);
+        enrichRowTotals(rows);
 
         FlexsurWeekTotalsDTO totals = buildTotals(rows);
         String status = resolveStatus(weeks);
@@ -372,7 +425,8 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                 week.getFlexsurWeekId(),
                 week.getManualRow() == null ? null : week.getManualRow().getManualFlexsurRowId(),
                 week.getManualRow() == null ? week.getServiceName() : week.getManualRow().getServiceName(),
-                details
+                details,
+                null
         );
     }
 
@@ -385,7 +439,8 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                         null,
                         row.getManualFlexsurRowId(),
                         row.getServiceName(),
-                        List.of()
+                        List.of(),
+                        null
                 ))
                 .toList();
     }
@@ -399,7 +454,8 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                         null,
                         null,
                         service.getServiceName(),
-                        List.of()
+                        List.of(),
+                        null
                 ))
                 .toList();
     }
@@ -480,6 +536,21 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         return new FlexsurWeekTotalsDTO(byDay, byService, byColumn, weekTotal);
     }
 
+    private void enrichRowTotals(List<FlexsurWeekRowDTO> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        for (FlexsurWeekRowDTO row : rows) {
+            List<FlexsurDetailDTO> details = row.getDetails() == null ? List.of() : row.getDetails();
+            int rowTotal = details.stream()
+                    .mapToInt(detail -> detail.getTotal() == null
+                            ? (detail.getTrips() == null ? 0 : detail.getTrips()) + (detail.getExtraColumn() == null ? 0 : detail.getExtraColumn())
+                            : detail.getTotal())
+                    .sum();
+            row.setRowTotal(rowTotal);
+        }
+    }
+
     private String resolveStatus(List<FlexsurWeek> weeks) {
         if (weeks == null || weeks.isEmpty()) {
             return null;
@@ -558,6 +629,16 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             case SATURDAY -> "sab";
             case SUNDAY -> "dom";
         };
+    }
+
+    private String formatDayLabel(LocalDate date) {
+        if (date == null) {
+            return "";
+        }
+        String dayName = date.getDayOfWeek()
+                .getDisplayName(TextStyle.FULL, new Locale("es", "MX"))
+                .toUpperCase(Locale.ROOT);
+        return dayName + " " + date.getDayOfMonth();
     }
 
     private void addStringCount(Map<String, Integer> totals, String key, int count) {
