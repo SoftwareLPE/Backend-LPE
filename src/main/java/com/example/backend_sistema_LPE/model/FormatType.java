@@ -23,6 +23,9 @@ public class FormatType {
     @Column(name = "format_type_id")
     private Long formatTypeId;
 
+    @Column(name = "format_catalog_id")
+    private Long formatCatalogId;
+
     @Column(name = "name", nullable = false)
     private String name;
 

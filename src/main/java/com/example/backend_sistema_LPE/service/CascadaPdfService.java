@@ -5,30 +5,35 @@ import com.example.backend_sistema_LPE.dto.CascadaWeekItemDTO;
 import com.example.backend_sistema_LPE.dto.CascadaWeekResponseDTO;
 import com.example.backend_sistema_LPE.dto.DriverViewDTO;
 import com.example.backend_sistema_LPE.dto.ShiftDTO;
+import com.example.backend_sistema_LPE.enums.CascadaStatus;
+import com.example.backend_sistema_LPE.model.CascadaStandardWeek;
 import com.example.backend_sistema_LPE.model.Plant;
+import com.example.backend_sistema_LPE.model.User;
+import com.example.backend_sistema_LPE.repository.CascadaStandardWeekRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
+import com.example.backend_sistema_LPE.repository.UserRepository;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
 import com.lowagie.text.FontFactory;
-import com.lowagie.text.Image;
 import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -39,21 +44,37 @@ public class CascadaPdfService {
     private final ShiftService shiftService;
     private final DriverService driverService;
     private final PlantRepository plantRepository;
+    private final CascadaStandardWeekRepository cascadaStandardWeekRepository;
+    private final UserRepository userRepository;
 
     public CascadaPdfService(
             CascadaStandardService cascadaStandardService,
             ShiftService shiftService,
             DriverService driverService,
-            PlantRepository plantRepository
+            PlantRepository plantRepository,
+            CascadaStandardWeekRepository cascadaStandardWeekRepository,
+            UserRepository userRepository
     ) {
         this.cascadaStandardService = cascadaStandardService;
         this.shiftService = shiftService;
         this.driverService = driverService;
         this.plantRepository = plantRepository;
+        this.cascadaStandardWeekRepository = cascadaStandardWeekRepository;
+        this.userRepository = userRepository;
     }
 
     public byte[] buildWeeklyPdf(Long plantId, LocalDate weekDate, String status, Boolean activeDrivers) {
-        CascadaWeekResponseDTO weekResponse = cascadaStandardService.getWeekCascadas(plantId, weekDate, status);
+        WeekMetadataResolver.ResolvedWeekMetadata requestedWeekMetadata = WeekMetadataResolver.resolve(
+                weekDate,
+                null,
+                null,
+                null
+        );
+        CascadaWeekResponseDTO weekResponse = cascadaStandardService.getWeekCascadas(
+                plantId,
+                requestedWeekMetadata.getWeekStartDate(),
+                status
+        );
         List<ShiftDTO> shifts = shiftService.getShiftsByPlant(plantId);
         List<DriverViewDTO> drivers = driverService.getDriversByPlant(plantId, activeDrivers);
 
@@ -73,18 +94,33 @@ public class CascadaPdfService {
         PdfWriter.getInstance(document, outputStream);
         document.open();
 
-        addHeader(document, plant);
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+                weekResponse.getWeekStartDate() != null ? weekResponse.getWeekStartDate() : requestedWeekMetadata.getWeekStartDate(),
+                weekResponse.getWeekStartDate(),
+                weekResponse.getWeekEndDate(),
+                weekResponse.getWeekNumber()
+        );
+
+        addHeader(document, plant, weekMetadata, resolveCoordinatorName(plantId, weekMetadata.getWeekStartDate(), status));
         addShiftTables(document, shifts, drivers, rowsByShift);
+        addWeeklyTotalsTable(document, shifts, rowsByShift);
         addSummaryTables(document, shifts, drivers, rowsByShift);
 
         document.close();
         return outputStream.toByteArray();
     }
 
-    private void addHeader(Document document, Plant plant) {
-        Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12);
+    private void addHeader(
+            Document document,
+            Plant plant,
+            WeekMetadataResolver.ResolvedWeekMetadata weekMetadata,
+            String coordinatorName
+    ) {
+        Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8);
+        Font valueFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7);
+        Font weekNumberFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14);
         String companyName = plant.getCompany() != null ? plant.getCompany().getCompanyName() : "";
-        Paragraph mainTitle = new Paragraph("Cascada Viajes", titleFont);
+        Paragraph mainTitle = new Paragraph("REPORTE VIAJES", titleFont);
         Paragraph companyTitle = new Paragraph(companyName, titleFont);
         Paragraph plantTitle = new Paragraph(plant.getPlantName(), titleFont);
         mainTitle.setAlignment(Element.ALIGN_CENTER);
@@ -93,36 +129,36 @@ public class CascadaPdfService {
 
         PdfPTable headerTable = new PdfPTable(2);
         headerTable.setWidthPercentage(100);
-        headerTable.setWidths(new float[]{70f, 30f});
+        headerTable.setWidths(new float[]{64f, 36f});
 
-        PdfPCell textCell = new PdfPCell();
+        PdfPTable leftHeader = new PdfPTable(1);
+        leftHeader.setWidthPercentage(100);
+        leftHeader.addCell(titleBlockCell("REPORTE VIAJES", titleFont));
+        leftHeader.addCell(titleBlockCell(companyName, titleFont));
+        leftHeader.addCell(titleBlockCell(plant.getPlantName(), titleFont));
+
+        PdfPTable rightHeader = new PdfPTable(3);
+        rightHeader.setWidthPercentage(100);
+        rightHeader.setWidths(new float[]{34f, 50f, 16f});
+        rightHeader.addCell(headerCell("SEMANA", titleFont));
+        rightHeader.addCell(bodyCell(formatWeekRange(weekMetadata), valueFont));
+        PdfPCell weekNumberCell = new PdfPCell(new Phrase(String.valueOf(weekMetadata.getWeekNumber()), weekNumberFont));
+        weekNumberCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        weekNumberCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        weekNumberCell.setRowspan(2);
+        weekNumberCell.setPadding(2f);
+        weekNumberCell.setBorderWidth(1f);
+        rightHeader.addCell(weekNumberCell);
+        rightHeader.addCell(headerCell("COORDINADOR", titleFont));
+        rightHeader.addCell(bodyCell(coordinatorName, valueFont));
+
+        PdfPCell textCell = new PdfPCell(leftHeader);
         textCell.setBorder(PdfPCell.NO_BORDER);
-        textCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        textCell.setVerticalAlignment(Element.ALIGN_TOP);
-        textCell.setPadding(0f);
-        textCell.addElement(mainTitle);
-        textCell.addElement(companyTitle);
-        textCell.addElement(plantTitle);
+        textCell.setPaddingRight(14f);
 
-        PdfPCell logoCell = new PdfPCell();
+        PdfPCell logoCell = new PdfPCell(rightHeader);
         logoCell.setBorder(PdfPCell.NO_BORDER);
-        logoCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        logoCell.setVerticalAlignment(Element.ALIGN_TOP);
-        logoCell.setPadding(0f);
-        logoCell.setPaddingRight(0f);
-        logoCell.setPaddingLeft(0f);
-
-        try {
-            ClassPathResource logoResource = new ClassPathResource("static/MARCA_OFICIAL_VERTICAL.png");
-            if (logoResource.exists()) {
-                Image logo = Image.getInstance(logoResource.getURL());
-                logo.scaleToFit(150, 50);
-                logo.setAlignment(Image.ALIGN_RIGHT);
-                logoCell.addElement(logo);
-            }
-        } catch (Exception ignored) {
-            // Logo optional; skip if not present.
-        }
+        logoCell.setPaddingLeft(14f);
 
         headerTable.addCell(textCell);
         headerTable.addCell(logoCell);
@@ -136,40 +172,44 @@ public class CascadaPdfService {
             List<DriverViewDTO> drivers,
             Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift
     ) {
-        Font shiftTitleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7);
         Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7);
         Font cellFont = FontFactory.getFont(FontFactory.HELVETICA, 7);
 
         for (ShiftDTO shift : shifts) {
-            String shiftLabel = shift.getShiftName();
-            if (shift.getStartTime() != null && shift.getEndTime() != null) {
-                shiftLabel = shiftLabel + " (" + shift.getStartTime() + " - " + shift.getEndTime() + ")";
-            }
-            document.add(new Paragraph(shiftLabel, shiftTitleFont));
-            document.add(new Paragraph(" "));
-
             List<String> orderedDays = orderDays(shift.getDayKeys());
-            int columns = 1 + orderedDays.size() * 4 + 2;
+            int columns = 2 + orderedDays.size() * 4 + 2;
             PdfPTable table = new PdfPTable(columns);
             table.setWidthPercentage(100);
             table.setWidths(buildShiftTableWidths(orderedDays.size(), 2));
 
-            PdfPCell driverHeader = headerCell("Chofer", headerFont);
-            driverHeader.setRowspan(3);
-            table.addCell(driverHeader);
+            PdfPCell noEcoSpacer = headerCell("", headerFont);
+            noEcoSpacer.setColspan(2);
+            noEcoSpacer.setRowspan(2);
+            table.addCell(noEcoSpacer);
+
+            PdfPCell shiftHeader = headerCell(shift.getShiftName().toUpperCase(), headerFont);
+            shiftHeader.setColspan(orderedDays.size() * 4);
+            table.addCell(shiftHeader);
+
+            PdfPCell totalNormalHeader = headerCell("Total\nNormales", headerFont);
+            totalNormalHeader.setRowspan(4);
+            table.addCell(totalNormalHeader);
+            PdfPCell totalExtraHeader = headerCell("Total\nExtras", headerFont);
+            totalExtraHeader.setRowspan(4);
+            table.addCell(totalExtraHeader);
 
             for (String dayKey : orderedDays) {
                 PdfPCell dayHeader = headerCell(dayDisplayName(dayKey), headerFont);
                 dayHeader.setColspan(4);
                 table.addCell(dayHeader);
             }
-            PdfPCell totalNormalHeader = headerCell("Total Norm", headerFont);
-            totalNormalHeader.setRowspan(3);
-            table.addCell(totalNormalHeader);
-            PdfPCell totalExtraHeader = headerCell("Total Ext", headerFont);
-            totalExtraHeader.setRowspan(3);
-            table.addCell(totalExtraHeader);
 
+            PdfPCell noEcoHeader = headerCell("No Eco", headerFont);
+            noEcoHeader.setRowspan(2);
+            table.addCell(noEcoHeader);
+            PdfPCell nameHeader = headerCell("Nombre", headerFont);
+            nameHeader.setRowspan(2);
+            table.addCell(nameHeader);
             for (int i = 0; i < orderedDays.size(); i++) {
                 PdfPCell eHeader = headerCell("E", headerFont);
                 eHeader.setRowspan(2);
@@ -197,6 +237,7 @@ public class CascadaPdfService {
             Map<String, Map<Long, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
 
             for (DriverViewDTO driver : drivers) {
+                table.addCell(bodyCell(driver.getDriverId() == null ? "" : String.valueOf(driver.getDriverId()), cellFont));
                 table.addCell(driverCell(resolveDriverDisplayName(driver, byDay), cellFont));
                 int driverNormal = 0;
                 int driverExtra = 0;
@@ -235,6 +276,7 @@ public class CascadaPdfService {
             }
 
             PdfPCell totalLabel = headerCell("Total", headerFont);
+            totalLabel.setColspan(2);
             table.addCell(totalLabel);
             for (String dayKey : orderedDays) {
                 int[] totals = totalsByDay.get(dayKey);
@@ -249,6 +291,65 @@ public class CascadaPdfService {
             document.add(table);
             document.add(new Paragraph(" "));
         }
+    }
+
+    private void addWeeklyTotalsTable(
+            Document document,
+            List<ShiftDTO> shifts,
+            Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift
+    ) {
+        Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8);
+        List<String> orderedDays = orderDays(Set.of("lun", "mar", "mie", "jue", "vie", "sab", "dom"));
+        Map<String, int[]> totalsByDay = new LinkedHashMap<>();
+        for (String dayKey : orderedDays) {
+            totalsByDay.put(dayKey, new int[4]);
+        }
+
+        int totalNormal = 0;
+        int totalExtra = 0;
+        for (ShiftDTO shift : shifts) {
+            Map<String, Map<Long, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
+            for (String dayKey : orderedDays) {
+                for (CascadaRowDTO row : byDay.getOrDefault(dayKey, Map.of()).values()) {
+                    if (isFilled(row.getE())) {
+                        totalsByDay.get(dayKey)[0] += 1;
+                        totalNormal += 1;
+                    }
+                    if (isFilled(row.getS())) {
+                        totalsByDay.get(dayKey)[1] += 1;
+                        totalNormal += 1;
+                    }
+                    if (isFilled(row.getEte())) {
+                        totalsByDay.get(dayKey)[2] += 1;
+                        totalExtra += 1;
+                    }
+                    if (isFilled(row.getSte())) {
+                        totalsByDay.get(dayKey)[3] += 1;
+                        totalExtra += 1;
+                    }
+                }
+            }
+        }
+
+        PdfPTable totalTable = new PdfPTable(2 + orderedDays.size() * 4 + 2);
+        totalTable.setWidthPercentage(100);
+        totalTable.setWidths(buildShiftTableWidths(orderedDays.size(), 2));
+
+        PdfPCell totalByDayLabel = headerCell("TOTAL POR DIA", headerFont);
+        totalByDayLabel.setColspan(2);
+        totalTable.addCell(totalByDayLabel);
+        for (String dayKey : orderedDays) {
+            int[] totals = totalsByDay.get(dayKey);
+            totalTable.addCell(headerCell(String.valueOf(totals[0] + totals[2]), headerFont));
+            totalTable.addCell(headerCell(String.valueOf(totals[1] + totals[3]), headerFont));
+            totalTable.addCell(headerCell("", headerFont));
+            totalTable.addCell(headerCell("", headerFont));
+        }
+        totalTable.addCell(headerCell(String.valueOf(totalNormal + totalExtra), headerFont));
+        totalTable.addCell(headerCell("", headerFont));
+
+        document.add(totalTable);
+        document.add(new Paragraph(" "));
     }
 
     private void addSummaryTables(
@@ -287,6 +388,9 @@ public class CascadaPdfService {
         PdfPTable summaryTable = new PdfPTable(4);
         summaryTable.setWidthPercentage(100);
         summaryTable.setWidths(new float[]{52f, 16f, 16f, 16f});
+        PdfPCell summarySection = headerCell("RESUMEN DE RECORRIDOS POR CHOFER", headerFont);
+        summarySection.setColspan(4);
+        summaryTable.addCell(summarySection);
         summaryTable.addCell(headerCell("Nombre de chofer", headerFont));
         summaryTable.addCell(headerCell("Normal", headerFont));
         summaryTable.addCell(headerCell("Extra", headerFont));
@@ -315,6 +419,9 @@ public class CascadaPdfService {
         PdfPTable routesTable = new PdfPTable(2);
         routesTable.setWidthPercentage(85);
         routesTable.setWidths(new float[]{70f, 30f});
+        PdfPCell routesSection = headerCell("TOTAL DE VIAJES POR RECORRIDO", headerFont);
+        routesSection.setColspan(2);
+        routesTable.addCell(routesSection);
         routesTable.addCell(headerCell("Nomenclatura", headerFont));
         routesTable.addCell(headerCell("Total", headerFont));
 
@@ -330,6 +437,9 @@ public class CascadaPdfService {
         PdfPTable breakdownTable = new PdfPTable(2);
         breakdownTable.setWidthPercentage(85);
         breakdownTable.setWidths(new float[]{70f, 30f});
+        PdfPCell breakdownSection = headerCell("DESGLOCE", headerFont);
+        breakdownSection.setColspan(2);
+        breakdownTable.addCell(breakdownSection);
         breakdownTable.addCell(headerCell("Desgloce", headerFont));
         breakdownTable.addCell(headerCell("Total de viajes", headerFont));
         breakdownTable.addCell(bodyCell("Viajes normales", cellFont));
@@ -339,7 +449,10 @@ public class CascadaPdfService {
         breakdownTable.addCell(headerCell("Total", headerFont));
         breakdownTable.addCell(headerCell(String.valueOf(totalViajes), headerFont));
 
-        document.add(new Paragraph("Resumen de recorridos por chofer", titleFont));
+        Paragraph summaryTitle = new Paragraph("RESUMEN", FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12));
+        summaryTitle.setAlignment(Element.ALIGN_CENTER);
+        document.add(summaryTitle);
+        document.add(new Paragraph(" "));
 
         PdfPTable summaryContainer = new PdfPTable(3);
         summaryContainer.setWidthPercentage(100);
@@ -356,7 +469,6 @@ public class CascadaPdfService {
         summaryContainer.addCell(leftCell);
         summaryContainer.addCell(rightCell);
 
-        document.add(new Paragraph("Total de viajes por recorrido", titleFont));
         document.add(summaryContainer);
     }
 
@@ -394,6 +506,7 @@ public class CascadaPdfService {
     private PdfPCell headerCell(String text, Font font) {
         PdfPCell cell = new PdfPCell(new Phrase(text == null ? "" : text, font));
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
         cell.setBackgroundColor(new Color(235, 240, 245));
         cell.setPadding(3f);
         cell.setBorderColor(new Color(220, 228, 236));
@@ -414,6 +527,68 @@ public class CascadaPdfService {
         PdfPCell cell = bodyCell(text, font);
         cell.setHorizontalAlignment(Element.ALIGN_LEFT);
         return cell;
+    }
+
+    private PdfPCell titleBlockCell(String text, Font font) {
+        PdfPCell cell = new PdfPCell(new Phrase(text == null ? "" : text, font));
+        cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        cell.setPadding(4f);
+        cell.setBorderWidth(1f);
+        cell.setBorderColor(Color.BLACK);
+        return cell;
+    }
+
+    private String formatWeekRange(WeekMetadataResolver.ResolvedWeekMetadata weekMetadata) {
+        if (weekMetadata == null || weekMetadata.getWeekStartDate() == null || weekMetadata.getWeekEndDate() == null) {
+            return "";
+        }
+        LocalDate weekStartDate = weekMetadata.getWeekStartDate();
+        LocalDate weekEndDate = weekMetadata.getWeekEndDate();
+        String month = weekEndDate.getMonth().getDisplayName(TextStyle.FULL, new Locale("es", "MX"))
+                .toUpperCase(Locale.ROOT);
+        return String.format(
+                Locale.ROOT,
+                "%02d AL %02d DE %s %04d",
+                weekStartDate.getDayOfMonth(),
+                weekEndDate.getDayOfMonth(),
+                month,
+                weekEndDate.getYear()
+        );
+    }
+
+    private String resolveCoordinatorName(Long plantId, LocalDate weekStartDate, String status) {
+        if (plantId == null || weekStartDate == null || status == null || status.isBlank()) {
+            return "";
+        }
+        CascadaStatus cascadaStatus;
+        try {
+            cascadaStatus = CascadaStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return "";
+        }
+
+        List<CascadaStandardWeek> weeks = cascadaStandardWeekRepository
+                .findByPlantPlantIdAndWeekStartDateAndStatus(plantId, weekStartDate, cascadaStatus);
+        if (weeks == null || weeks.isEmpty()) {
+            return "";
+        }
+
+        CascadaStandardWeek latest = weeks.stream()
+                .filter(week -> week.getSentAt() != null)
+                .max(Comparator.comparing(CascadaStandardWeek::getSentAt))
+                .orElseGet(() -> weeks.stream()
+                        .filter(week -> week.getUpdatedAt() != null)
+                        .max(Comparator.comparing(CascadaStandardWeek::getUpdatedAt))
+                        .orElse(weeks.get(0)));
+
+        Long sentByUserId = latest.getSentByUserId() != null ? latest.getSentByUserId() : latest.getUpdatedByUserId();
+        if (sentByUserId == null) {
+            return "";
+        }
+
+        User user = userRepository.findById(sentByUserId).orElse(null);
+        return user == null || user.getUserName() == null ? "" : user.getUserName().toUpperCase(Locale.ROOT);
     }
 
     private String resolveDriverDisplayName(
@@ -437,16 +612,18 @@ public class CascadaPdfService {
     }
 
     private float[] buildShiftTableWidths(int dayCount, int extraColumns) {
+        float noEcoWidth = 8f;
         float driverWidth = 20f;
         int dataColumns = dayCount * 4;
         float dataWidth = dataColumns > 0 ? 80f / dataColumns : 80f;
         float extraWidth = dataWidth * 1.5f;
-        float total = driverWidth + (dataWidth * dataColumns) + (extraWidth * extraColumns);
+        float total = noEcoWidth + driverWidth + (dataWidth * dataColumns) + (extraWidth * extraColumns);
         float scale = total > 0f ? 100f / total : 1f;
 
-        float[] widths = new float[1 + dataColumns + extraColumns];
-        widths[0] = driverWidth * scale;
-        for (int i = 1; i < widths.length - extraColumns; i++) {
+        float[] widths = new float[2 + dataColumns + extraColumns];
+        widths[0] = noEcoWidth * scale;
+        widths[1] = driverWidth * scale;
+        for (int i = 2; i < widths.length - extraColumns; i++) {
             widths[i] = dataWidth * scale;
         }
         for (int i = widths.length - extraColumns; i < widths.length; i++) {

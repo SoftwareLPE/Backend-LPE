@@ -24,7 +24,10 @@ public interface CascadaStandardService {
 
     void updateCascadaStatus(
             Long plantId,
+            LocalDate weekDate,
             LocalDate weekStartDate,
+            LocalDate weekEndDate,
+            Integer weekNumber,
             String shiftId,
             String dayKey,
             String status,

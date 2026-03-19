@@ -29,6 +29,12 @@ public class CascadaStandardWeek {
     @Column(name = "week_start_date", nullable = false)
     private LocalDate weekStartDate;
 
+    @Column(name = "week_end_date")
+    private LocalDate weekEndDate;
+
+    @Column(name = "week_number")
+    private Integer weekNumber;
+
     @Column(name = "shift_id", nullable = false)
     private String shiftId;
 

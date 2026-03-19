@@ -40,6 +40,8 @@ import com.example.backend_sistema_LPE.repository.UserRepository;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -109,18 +111,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             throw new RuntimeException("weekDate is required");
         }
 
-        List<FormatWeek> weeks = shiftId == null
-                ? formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
-                        plantId,
-                        weekDate,
-                        formatTypeId
-                )
-                : formatWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
-                        plantId,
-                        weekDate,
-                        shiftId,
-                        formatTypeId
-                );
+        List<FormatWeek> weeks = findFormatWeeksByRequestedWeek(plantId, formatTypeId, weekDate, shiftId);
 
         List<FormatTurnConfig> allTurnConfigs = formatTurnConfigRepository
                 .findByFormatTypeFormatTypeId(formatTypeId);
@@ -129,6 +120,14 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
         Map<Long, FormatTurnConfig> turnConfigById = allTurnConfigs.stream()
                 .collect(Collectors.toMap(FormatTurnConfig::getTurnConfigId, config -> config));
+        WeekMetadataResolver.ResolvedWeekMetadata responseWeekMetadata = weeks.isEmpty()
+                ? WeekMetadataResolver.resolve(weekDate, null, null, null)
+                : WeekMetadataResolver.resolve(
+                        weekDate,
+                        weeks.get(0).getWeekStartDate(),
+                        weeks.get(0).getWeekEndDate(),
+                        weeks.get(0).getWeekNumber()
+                );
 
         List<FormatWeekRowDTO> savedRows = weeks.stream()
                 .map(this::toRowDTO)
@@ -141,6 +140,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             return new FormatWeekResponseDTO(
                     plantId,
                     weekDate,
+                    responseWeekMetadata.getWeekStartDate(),
+                    responseWeekMetadata.getWeekEndDate(),
+                    responseWeekMetadata.getWeekNumber(),
                     shiftId,
                     formatTypeId,
                     rows,
@@ -150,6 +152,11 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
         FormatType formatType = formatTypeRepository.findById(formatTypeId)
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
+        boolean usesDriver = usesDriver(formatType);
+        Map<String, FormatWeekRowDTO> weeklyOverrideRows = resolveWeeklyOverrideRows(
+                findFormatWeeksByRequestedWeek(plantId, formatTypeId, weekDate, null),
+                usesDriver
+        );
         List<FormatWeekManualRow> manualRows = formatWeekManualRowRepository
                 .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
                         plantId,
@@ -157,17 +164,19 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                         weekDate
                 );
 
+        savedRows.forEach(row -> applyWeeklyBaseOverrides(row, weeklyOverrideRows.get(rowKey(row, usesDriver))));
         List<FormatWeekRowDTO> rows = new ArrayList<>(savedRows);
 
         if (!turnConfigs.isEmpty()) {
-            List<FormatWeekRowDTO> baseRows = usesDriver(formatType)
+            List<FormatWeekRowDTO> baseRows = usesDriver
                     ? buildDriverRows(plantId, shiftId, formatType, turnConfigs)
                     : buildRouteRows(plantId, formatType, turnConfigs);
             baseRows = new ArrayList<>(baseRows);
             baseRows.addAll(buildManualRows(manualRows, turnConfigs));
+            baseRows.forEach(row -> applyWeeklyBaseOverrides(row, weeklyOverrideRows.get(rowKey(row, usesDriver))));
 
             if (!baseRows.isEmpty()) {
-                rows = mergeBaseRows(baseRows, savedRows, usesDriver(formatType));
+                rows = mergeBaseRows(baseRows, savedRows, usesDriver);
             }
         }
 
@@ -175,6 +184,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         return new FormatWeekResponseDTO(
                 plantId,
                 weekDate,
+                responseWeekMetadata.getWeekStartDate(),
+                responseWeekMetadata.getWeekEndDate(),
+                responseWeekMetadata.getWeekNumber(),
                 shiftId,
                 formatTypeId,
                 rows,
@@ -197,6 +209,17 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         if (request.getFormatTypeId() == null) {
             throw new RuntimeException("formatTypeId is required");
         }
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+                request.getWeekDate(),
+                request.getWeekStartDate(),
+                request.getWeekEndDate(),
+                request.getWeekNumber()
+        );
+        LocalDate requestedWeekDate = request.getWeekDate();
+        request.setWeekDate(weekMetadata.getWeekStartDate());
+        request.setWeekStartDate(weekMetadata.getWeekStartDate());
+        request.setWeekEndDate(weekMetadata.getWeekEndDate());
+        request.setWeekNumber(weekMetadata.getWeekNumber());
 
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
@@ -222,12 +245,16 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 formatType,
                 userId
         );
-        formatWeekRepository.deleteByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
+        List<FormatWeek> existingWeeks = findFormatWeeksByRequestedWeek(
                 request.getPlantId(),
-                request.getWeekDate(),
-                request.getShiftId(),
-                request.getFormatTypeId()
+                request.getFormatTypeId(),
+                requestedWeekDate,
+                request.getShiftId()
         );
+        if (!existingWeeks.isEmpty()) {
+            formatWeekRepository.deleteAll(existingWeeks);
+            formatWeekRepository.flush();
+        }
 
         List<FormatWeekRowDTO> rows = request.getRows() == null ? List.of() : request.getRows();
         for (FormatWeekRowDTO row : rows) {
@@ -236,6 +263,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             week.setShift(shift);
             week.setFormatType(formatType);
             week.setWeekDate(request.getWeekDate());
+            week.setWeekStartDate(request.getWeekStartDate());
+            week.setWeekEndDate(request.getWeekEndDate());
+            week.setWeekNumber(request.getWeekNumber());
             week.setStatus(CascadaStatus.DRAFT);
 
             FormatWeekManualRow manualRow = resolveManualRow(row, persistedManualRows);
@@ -244,9 +274,15 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             }
             if (manualRow != null) {
                 week.setManualRow(manualRow);
+                week.setRouteNameOverride(null);
+                week.setDriverNameOverride(null);
+                week.setDriverLastNameOverride(null);
                 week.setUnitType(manualRow.getUnitType());
                 week.setSecondaryValue(manualRow.getSecondaryValue());
             } else {
+                week.setRouteNameOverride(trimToNull(row.getRouteName()));
+                week.setDriverNameOverride(trimToNull(row.getDriverName()));
+                week.setDriverLastNameOverride(trimToNull(row.getDriverLastName()));
                 week.setUnitType(row.getUnitType());
                 week.setSecondaryValue(row.getSecondaryValue());
             }
@@ -432,6 +468,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             Long plantId,
             Long formatTypeId,
             LocalDate weekDate,
+            LocalDate weekStartDate,
+            LocalDate weekEndDate,
+            Integer weekNumber,
             Long shiftId,
             String dayKey,
             String status,
@@ -468,12 +507,14 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             throw new RuntimeException("status must be SENT or DELETED");
         }
 
-        List<FormatWeek> weeks = formatWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
-                plantId,
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
                 weekDate,
-                shiftId,
-                formatTypeId
+                weekStartDate,
+                weekEndDate,
+                weekNumber
         );
+
+        List<FormatWeek> weeks = findFormatWeeksByRequestedWeek(plantId, formatTypeId, weekDate, shiftId);
 
         if (weeks.isEmpty()) {
             return;
@@ -489,6 +530,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                     week.setSentByUserId(userId);
                 }
             }
+            week.setWeekStartDate(weekMetadata.getWeekStartDate());
+            week.setWeekEndDate(weekMetadata.getWeekEndDate());
+            week.setWeekNumber(weekMetadata.getWeekNumber());
             week.setStatus(cascadaStatus);
             week.setUpdatedAt(now);
             week.setUpdatedByUserId(userId);
@@ -502,7 +546,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
             cascadaRecipientRepository.deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndCascadaType(
                     plantId,
-                    weekDate,
+                    weekMetadata.getWeekStartDate(),
                     shiftId.toString(),
                     CascadaType.CUSTOM
             );
@@ -514,7 +558,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             for (Long recipientUserId : recipientUserIds) {
                 CascadaRecipient recipient = new CascadaRecipient();
                 recipient.setPlant(plant);
-                recipient.setWeekStartDate(weekDate);
+                recipient.setWeekStartDate(weekMetadata.getWeekStartDate());
                 recipient.setShiftId(shiftId.toString());
                 recipient.setDayKey(dayKey);
                 recipient.setCascadaType(CascadaType.CUSTOM);
@@ -524,21 +568,21 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 recipients.add(recipient);
             }
             cascadaRecipientRepository.saveAll(recipients);
-            publishFormatInboxMessagesForStatus(
+            deferPublishFormatInboxMessagesForStatus(
                     CascadaStatus.SENT.name(),
                     plantId,
-                    weekDate,
+                    weekMetadata.getWeekStartDate(),
                     recipientUserIds
             );
             return;
         }
 
         if (cascadaStatus == CascadaStatus.DELETED) {
-            publishFormatInboxMessagesForStatus(
+            deferPublishFormatInboxMessagesForStatus(
                     CascadaStatus.DELETED.name(),
                     plantId,
-                    weekDate,
-                    recipientUserIdsForCustom(plantId, weekDate, shiftId.toString(), dayKey)
+                    weekMetadata.getWeekStartDate(),
+                    recipientUserIdsForCustom(plantId, weekMetadata.getWeekStartDate(), shiftId.toString(), dayKey)
             );
             return;
         }
@@ -559,15 +603,21 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             throw new RuntimeException("Invalid status: " + effectiveStatus);
         }
 
+        LocalDate effectiveRequestedWeekStartDate = weekDate == null
+                ? null
+                : WeekMetadataResolver.resolve(weekDate, null, null, null).getWeekStartDate();
+
         List<FormatWeek> weeks;
-        if (plantId != null && weekDate != null) {
-            weeks = formatWeekRepository.findByStatusAndPlantPlantIdAndWeekDate(cascadaStatus, plantId, weekDate);
-        } else if (plantId != null) {
+        if (plantId != null) {
             weeks = formatWeekRepository.findByStatusAndPlantPlantId(cascadaStatus, plantId);
-        } else if (weekDate != null) {
-            weeks = formatWeekRepository.findByStatusAndWeekDate(cascadaStatus, weekDate);
         } else {
             weeks = formatWeekRepository.findByStatus(cascadaStatus);
+        }
+
+        if (effectiveRequestedWeekStartDate != null) {
+            weeks = weeks.stream()
+                    .filter(week -> resolveWeekStartDate(week).equals(effectiveRequestedWeekStartDate))
+                    .toList();
         }
 
         if (recipientUserId != null) {
@@ -584,7 +634,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                             return false;
                         }
                         return allowedKeys.contains(
-                                week.getPlant().getPlantId() + "|" + week.getWeekDate() + "|" + shiftKey
+                                week.getPlant().getPlantId() + "|" + resolveWeekStartDate(week) + "|" + shiftKey
                         );
                     })
                     .toList();
@@ -592,7 +642,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
         Map<String, List<FormatWeek>> grouped = weeks.stream()
                 .collect(Collectors.groupingBy(week ->
-                        week.getPlant().getPlantId() + "|" + week.getWeekDate()
+                        week.getPlant().getPlantId() + "|" + resolveWeekStartDate(week)
                 ));
 
         List<CascadaSummaryDTO> summaries = new ArrayList<>();
@@ -606,13 +656,15 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                             .max(java.util.Comparator.comparing(FormatWeek::getUpdatedAt))
                             .orElse(groupWeeks.get(0)));
 
+            LocalDate effectiveWeekStartDate = resolveWeekStartDate(latest);
             Set<String> shiftIds = groupWeeks.stream()
                     .map(week -> week.getShift() == null ? null : week.getShift().getShiftId())
                     .filter(java.util.Objects::nonNull)
                     .map(Object::toString)
-                    .collect(Collectors.toSet());
+                    .sorted(this::compareShiftIds)
+                    .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
 
-            Set<String> dayKeys = new HashSet<>();
+            Set<String> dayKeys = new java.util.LinkedHashSet<>();
             for (FormatWeek week : groupWeeks) {
                 if (week.getCells() == null) {
                     continue;
@@ -635,15 +687,18 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
             summaries.add(new CascadaSummaryDTO(
                     latest.getFormatWeekId(),
-                    stableCascadaId(latest.getPlant().getPlantId(), latest.getWeekDate()),
+                    stableCascadaId(latest.getPlant().getPlantId(), effectiveWeekStartDate),
                     latest.getPlant().getPlantId(),
                     latest.getPlant().getPlantName(),
                     latest.getPlant().getCompany().getCompanyId(),
                     latest.getPlant().getCompany().getCompanyName(),
                     sentBy,
-                    latest.getWeekDate(),
+                    effectiveWeekStartDate,
+                    effectiveWeekStartDate,
+                    resolveWeekEndDate(latest),
+                    resolveWeekNumber(latest),
                     shiftIds,
-                    dayKeys,
+                    orderDayKeys(dayKeys),
                     latest.getSentAt() != null ? latest.getSentAt() : latest.getUpdatedAt()
             ));
         }
@@ -701,10 +756,22 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 week.getFormatWeekId(),
                 manualRow == null ? null : manualRow.getManualRowId(),
                 week.getRoute() == null ? null : week.getRoute().getRouteId(),
-                manualRow != null ? manualRow.getRouteName() : week.getRoute() == null ? null : week.getRoute().getRouteName(),
+                manualRow != null
+                        ? manualRow.getRouteName()
+                        : week.getRouteNameOverride() != null
+                                ? week.getRouteNameOverride()
+                                : week.getRoute() == null ? null : week.getRoute().getRouteName(),
                 week.getDriver() == null ? null : week.getDriver().getDriverId(),
-                manualRow != null ? manualRow.getDriverName() : week.getDriver() == null ? null : week.getDriver().getDriverName(),
-                manualRow != null ? manualRow.getDriverLastName() : week.getDriver() == null ? null : week.getDriver().getLastName(),
+                manualRow != null
+                        ? manualRow.getDriverName()
+                        : week.getDriverNameOverride() != null
+                                ? week.getDriverNameOverride()
+                                : week.getDriver() == null ? null : week.getDriver().getDriverName(),
+                manualRow != null
+                        ? manualRow.getDriverLastName()
+                        : week.getDriverLastNameOverride() != null
+                                ? week.getDriverLastNameOverride()
+                                : week.getDriver() == null ? null : week.getDriver().getLastName(),
                 manualRow != null ? manualRow.getUnitType() : week.getUnitType(),
                 manualRow != null ? manualRow.getSecondaryValue() : week.getSecondaryValue(),
                 manualRow != null ? Boolean.TRUE : week.getRoute() == null && week.getDriver() == null,
@@ -905,19 +972,19 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         if (base.getManualRowId() == null && saved.getManualRowId() != null) {
             base.setManualRowId(saved.getManualRowId());
         }
-        if (base.getRouteName() == null && saved.getRouteName() != null) {
+        if (saved.getRouteName() != null) {
             base.setRouteName(saved.getRouteName());
         }
-        if (base.getDriverName() == null && saved.getDriverName() != null) {
+        if (saved.getDriverName() != null) {
             base.setDriverName(saved.getDriverName());
         }
-        if (base.getDriverLastName() == null && saved.getDriverLastName() != null) {
+        if (saved.getDriverLastName() != null) {
             base.setDriverLastName(saved.getDriverLastName());
         }
-        if (base.getUnitType() == null && saved.getUnitType() != null) {
+        if (saved.getUnitType() != null) {
             base.setUnitType(saved.getUnitType());
         }
-        if (base.getSecondaryValue() == null && saved.getSecondaryValue() != null) {
+        if (saved.getSecondaryValue() != null) {
             base.setSecondaryValue(saved.getSecondaryValue());
         }
 
@@ -940,6 +1007,107 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 continue;
             }
             baseCell.setTripCount(savedCell.getTripCount());
+        }
+    }
+
+    private Map<String, FormatWeekRowDTO> resolveWeeklyOverrideRows(
+            List<FormatWeek> weeklyWeeks,
+            boolean usesDriver
+    ) {
+        if (weeklyWeeks == null || weeklyWeeks.isEmpty()) {
+            return Map.of();
+        }
+
+        List<FormatWeek> orderedWeeks = new ArrayList<>(weeklyWeeks);
+        orderedWeeks.sort(java.util.Comparator
+                .comparing(this::weeklyOverrideTimestamp, java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
+                .thenComparing(FormatWeek::getFormatWeekId, java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())));
+
+        Map<String, FormatWeekRowDTO> overrides = new LinkedHashMap<>();
+        for (FormatWeek week : orderedWeeks) {
+            FormatWeekRowDTO row = toWeeklyOverrideRowDTO(week);
+            String key = rowKey(row, usesDriver);
+            if (key == null) {
+                continue;
+            }
+            FormatWeekRowDTO existing = overrides.get(key);
+            if (existing == null) {
+                overrides.put(key, row);
+                continue;
+            }
+            mergeWeeklyBaseOverrideRow(existing, row);
+        }
+        return overrides;
+    }
+
+    private LocalDateTime weeklyOverrideTimestamp(FormatWeek week) {
+        if (week.getUpdatedAt() != null) {
+            return week.getUpdatedAt();
+        }
+        if (week.getSentAt() != null) {
+            return week.getSentAt();
+        }
+        return null;
+    }
+
+    private void applyWeeklyBaseOverrides(FormatWeekRowDTO target, FormatWeekRowDTO source) {
+        if (target == null || source == null) {
+            return;
+        }
+        if (source.getRouteName() != null) {
+            target.setRouteName(source.getRouteName());
+        }
+        if (source.getDriverName() != null) {
+            target.setDriverName(source.getDriverName());
+        }
+        if (source.getDriverLastName() != null) {
+            target.setDriverLastName(source.getDriverLastName());
+        }
+        if (source.getUnitType() != null) {
+            target.setUnitType(source.getUnitType());
+        }
+        if (source.getSecondaryValue() != null) {
+            target.setSecondaryValue(source.getSecondaryValue());
+        }
+    }
+
+    private FormatWeekRowDTO toWeeklyOverrideRowDTO(FormatWeek week) {
+        FormatWeekManualRow manualRow = week.getManualRow();
+        boolean manual = manualRow != null;
+        return new FormatWeekRowDTO(
+                week.getFormatWeekId(),
+                manual ? manualRow.getManualRowId() : null,
+                week.getRoute() == null ? null : week.getRoute().getRouteId(),
+                manual ? manualRow.getRouteName() : trimToNull(week.getRouteNameOverride()),
+                week.getDriver() == null ? null : week.getDriver().getDriverId(),
+                manual ? manualRow.getDriverName() : trimToNull(week.getDriverNameOverride()),
+                manual ? manualRow.getDriverLastName() : trimToNull(week.getDriverLastNameOverride()),
+                manual ? manualRow.getUnitType() : trimToNull(week.getUnitType()),
+                manual ? manualRow.getSecondaryValue() : trimToNull(week.getSecondaryValue()),
+                manual ? Boolean.TRUE : week.getRoute() == null && week.getDriver() == null,
+                List.of(),
+                null
+        );
+    }
+
+    private void mergeWeeklyBaseOverrideRow(FormatWeekRowDTO target, FormatWeekRowDTO source) {
+        if (target == null || source == null) {
+            return;
+        }
+        if (source.getRouteName() != null) {
+            target.setRouteName(source.getRouteName());
+        }
+        if (source.getDriverName() != null) {
+            target.setDriverName(source.getDriverName());
+        }
+        if (source.getDriverLastName() != null) {
+            target.setDriverLastName(source.getDriverLastName());
+        }
+        if (source.getUnitType() != null) {
+            target.setUnitType(source.getUnitType());
+        }
+        if (source.getSecondaryValue() != null) {
+            target.setSecondaryValue(source.getSecondaryValue());
         }
     }
 
@@ -1276,7 +1444,98 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     }
 
     private String stableCascadaId(Long plantId, LocalDate weekDate) {
-        return plantId + "-" + weekDate;
+        return "custom-" + plantId + "-" + weekDate;
+    }
+
+    private List<FormatWeek> findFormatWeeksByRequestedWeek(
+            Long plantId,
+            Long formatTypeId,
+            LocalDate requestedWeekDate,
+            Long shiftId
+    ) {
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+                requestedWeekDate,
+                null,
+                null,
+                null
+        );
+        LocalDate effectiveWeekStartDate = weekMetadata.getWeekStartDate();
+
+        List<FormatWeek> weeks = shiftId == null
+                ? formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
+                        plantId,
+                        effectiveWeekStartDate,
+                        formatTypeId
+                )
+                : formatWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
+                        plantId,
+                        effectiveWeekStartDate,
+                        shiftId,
+                        formatTypeId
+                );
+
+        if (!weeks.isEmpty() || requestedWeekDate.equals(effectiveWeekStartDate)) {
+            return weeks;
+        }
+
+        return shiftId == null
+                ? formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
+                        plantId,
+                        requestedWeekDate,
+                        formatTypeId
+                )
+                : formatWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
+                        plantId,
+                        requestedWeekDate,
+                        shiftId,
+                        formatTypeId
+                );
+    }
+
+    private LocalDate resolveWeekStartDate(FormatWeek week) {
+        return week.getWeekStartDate() != null
+                ? week.getWeekStartDate()
+                : WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekStartDate();
+    }
+
+    private LocalDate resolveWeekEndDate(FormatWeek week) {
+        return week.getWeekEndDate() != null
+                ? week.getWeekEndDate()
+                : WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekEndDate();
+    }
+
+    private Integer resolveWeekNumber(FormatWeek week) {
+        return week.getWeekNumber() != null
+                ? week.getWeekNumber()
+                : WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekNumber();
+    }
+
+    private Set<String> orderDayKeys(Set<String> dayKeys) {
+        return dayKeys.stream()
+                .filter(java.util.Objects::nonNull)
+                .sorted(java.util.Comparator.comparingInt(this::dayOrder))
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+    }
+
+    private int dayOrder(String dayKey) {
+        return switch (dayKey == null ? "" : dayKey.trim().toLowerCase()) {
+            case "lun" -> 1;
+            case "mar" -> 2;
+            case "mie" -> 3;
+            case "jue" -> 4;
+            case "vie" -> 5;
+            case "sab" -> 6;
+            case "dom" -> 7;
+            default -> Integer.MAX_VALUE;
+        };
+    }
+
+    private int compareShiftIds(String left, String right) {
+        try {
+            return Long.compare(Long.parseLong(left), Long.parseLong(right));
+        } catch (NumberFormatException ex) {
+            return String.valueOf(left).compareTo(String.valueOf(right));
+        }
     }
 
     private List<Long> recipientUserIdsForCustom(
@@ -1353,5 +1612,24 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
             messagingTemplate.convertAndSend("/topic/inbox/" + recipientUserId, payload);
         }
+    }
+
+    private void deferPublishFormatInboxMessagesForStatus(
+            String status,
+            Long plantId,
+            LocalDate weekDate,
+            List<Long> recipientUserIds
+    ) {
+        Runnable publisher = () -> publishFormatInboxMessagesForStatus(status, plantId, weekDate, recipientUserIds);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
+            return;
+        }
+        publisher.run();
     }
 }

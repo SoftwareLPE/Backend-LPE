@@ -46,6 +46,15 @@ public class FormatWeek {
     @Column(name = "week_date", nullable = false)
     private LocalDate weekDate;
 
+    @Column(name = "week_start_date")
+    private LocalDate weekStartDate;
+
+    @Column(name = "week_end_date")
+    private LocalDate weekEndDate;
+
+    @Column(name = "week_number")
+    private Integer weekNumber;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "shift_id", nullable = false)
     private Shift shift;
@@ -61,6 +70,15 @@ public class FormatWeek {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "manual_row_id")
     private FormatWeekManualRow manualRow;
+
+    @Column(name = "route_name_override")
+    private String routeNameOverride;
+
+    @Column(name = "driver_name_override")
+    private String driverNameOverride;
+
+    @Column(name = "driver_last_name_override")
+    private String driverLastNameOverride;
 
     @Column(name = "unit_type")
     private String unitType;

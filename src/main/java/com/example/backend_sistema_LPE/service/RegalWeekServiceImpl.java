@@ -343,14 +343,15 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                     .toList();
         }
         if (weekDate != null) {
+            LocalDate effectiveRequestedWeekStartDate = WeekMetadataResolver.resolve(weekDate, null, null, null).getWeekStartDate();
             weeks = weeks.stream()
-                    .filter(week -> week.getWeekDate().equals(weekDate))
+                    .filter(week -> resolveWeekStartDate(week).equals(effectiveRequestedWeekStartDate))
                     .toList();
         }
 
         java.util.Map<String, List<RegalWeek>> grouped = weeks.stream()
                 .collect(java.util.stream.Collectors.groupingBy(week ->
-                        week.getPlant().getPlantId() + "|" + week.getWeekDate()
+                        week.getPlant().getPlantId() + "|" + resolveWeekStartDate(week)
                 ));
 
         List<CascadaSummaryDTO> summaries = new ArrayList<>();
@@ -361,13 +362,15 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                     .max(java.util.Comparator.comparing(RegalWeek::getSentAt))
                     .orElse(groupWeeks.get(0));
 
+            LocalDate effectiveWeekStartDate = resolveWeekStartDate(latest);
             java.util.Set<String> shiftIds = groupWeeks.stream()
                     .map(week -> week.getShift() == null ? null : week.getShift().getShiftId().toString())
                     .filter(java.util.Objects::nonNull)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .sorted(this::compareShiftIds)
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
             java.util.Set<String> dayKeys = groupWeeks.stream()
                     .flatMap(week -> week.getDetails().stream().map(RegalDetail::getDayOfWeek))
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
 
             String sentBy = null;
             if (latest.getSentByUserId() != null) {
@@ -379,15 +382,18 @@ public class RegalWeekServiceImpl implements RegalWeekService {
 
             summaries.add(new CascadaSummaryDTO(
                     latest.getRegalWeekId(),
-                    latest.getPlant().getPlantId() + "-" + latest.getWeekDate(),
+                    stableCascadaId(latest.getPlant().getPlantId(), effectiveWeekStartDate),
                     latest.getPlant().getPlantId(),
                     latest.getPlant().getPlantName(),
                     latest.getPlant().getCompany().getCompanyId(),
                     latest.getPlant().getCompany().getCompanyName(),
                     sentBy,
-                    latest.getWeekDate(),
+                    effectiveWeekStartDate,
+                    effectiveWeekStartDate,
+                    resolveWeekEndDate(latest),
+                    resolveWeekNumber(latest),
                     shiftIds,
-                    dayKeys,
+                    orderedDayKeySet(dayKeys),
                     latest.getSentAt()
             ));
         }
@@ -782,5 +788,49 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         );
 
         messagingTemplate.convertAndSend("/topic/inbox/" + userId, payload);
+    }
+
+    private String stableCascadaId(Long plantId, LocalDate weekStartDate) {
+        return "regal-" + plantId + "-" + weekStartDate;
+    }
+
+    private LocalDate resolveWeekStartDate(RegalWeek week) {
+        return WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekStartDate();
+    }
+
+    private LocalDate resolveWeekEndDate(RegalWeek week) {
+        return WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekEndDate();
+    }
+
+    private Integer resolveWeekNumber(RegalWeek week) {
+        return WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekNumber();
+    }
+
+    private Set<String> orderedDayKeySet(Set<String> dayKeys) {
+        return dayKeys.stream()
+                .filter(java.util.Objects::nonNull)
+                .sorted(java.util.Comparator.comparingInt(this::dayOrder))
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+    }
+
+    private int dayOrder(String dayKey) {
+        return switch (dayKey == null ? "" : dayKey.trim().toLowerCase()) {
+            case "lun" -> 1;
+            case "mar" -> 2;
+            case "mie" -> 3;
+            case "jue" -> 4;
+            case "vie" -> 5;
+            case "sab" -> 6;
+            case "dom" -> 7;
+            default -> Integer.MAX_VALUE;
+        };
+    }
+
+    private int compareShiftIds(String left, String right) {
+        try {
+            return Long.compare(Long.parseLong(left), Long.parseLong(right));
+        } catch (NumberFormatException ex) {
+            return String.valueOf(left).compareTo(String.valueOf(right));
+        }
     }
 }

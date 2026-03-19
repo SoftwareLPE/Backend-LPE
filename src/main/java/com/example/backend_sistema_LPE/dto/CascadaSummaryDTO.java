@@ -22,6 +22,11 @@ public class CascadaSummaryDTO {
     private String sentBy;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate weekStartDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate weekEndDate;
+    private Integer weekNumber;
     // All shift ids included for the week.
     private Set<String> shiftIds;
     // All day keys included for the week.

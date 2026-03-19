@@ -95,12 +95,19 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
 
     @Override
     public CascadaResponseDTO getCascada(Long plantId, LocalDate weekStartDate, String shiftId, String dayKey, String status) {
+        WeekMetadataResolver.ResolvedWeekMetadata requestedWeekMetadata = WeekMetadataResolver.resolve(
+                weekStartDate,
+                null,
+                null,
+                null
+        );
+        LocalDate effectiveWeekStartDate = requestedWeekMetadata.getWeekStartDate();
         CascadaStandardWeek week = weekRepository
-                .findByPlantPlantIdAndWeekStartDateAndShiftId(plantId, weekStartDate, shiftId)
+                .findByPlantPlantIdAndWeekStartDateAndShiftId(plantId, effectiveWeekStartDate, shiftId)
                 .orElse(null);
 
         List<CascadaStandardManualRow> manualRows = manualRowRepository
-                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualStandardRowIdAsc(plantId, weekStartDate);
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualStandardRowIdAsc(plantId, effectiveWeekStartDate);
         List<CascadaRowDTO> rowDTOs = buildMergedRows(plantId, week, shiftId, dayKey, manualRows);
 
         if (week != null && status != null && !status.isBlank()) {
@@ -111,7 +118,11 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
 
         CascadaResponseDTO response = new CascadaResponseDTO();
         response.setPlantId(plantId);
-        response.setWeekStartDate(weekStartDate);
+        response.setWeekStartDate(week != null && week.getWeekStartDate() != null ? week.getWeekStartDate() : requestedWeekMetadata.getWeekStartDate());
+        response.setWeekEndDate(week != null && week.getWeekEndDate() != null ? week.getWeekEndDate() : requestedWeekMetadata.getWeekEndDate());
+        response.setWeekNumber(week != null && week.getWeekNumber() != null
+                ? week.getWeekNumber()
+                : requestedWeekMetadata.getWeekNumber());
         response.setShiftId(shiftId);
         response.setDayKey(dayKey);
         response.setStatus(week == null ? status : week.getStatus().name());
@@ -127,6 +138,16 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                 && !request.getDayKey().isBlank()
                 && request.getRows() != null;
         boolean usesLegacyFlow = request.getDays() != null && !request.getDays().isEmpty();
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+                request.getWeekDate(),
+                request.getWeekStartDate(),
+                request.getWeekEndDate(),
+                request.getWeekNumber()
+        );
+        request.setWeekStartDate(weekMetadata.getWeekStartDate());
+        request.setWeekEndDate(weekMetadata.getWeekEndDate());
+        request.setWeekNumber(weekMetadata.getWeekNumber());
+        request.setWeekDate(weekMetadata.getWeekStartDate());
 
         log.info(
                 "SAVE standard cascada: plantId={}, weekDate={}, shiftId={}, days={}",
@@ -194,6 +215,9 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
             week.setWeekStartDate(request.getWeekDate());
             week.setShiftId(request.getShiftId());
         }
+        week.setWeekStartDate(request.getWeekStartDate());
+        week.setWeekEndDate(request.getWeekEndDate());
+        week.setWeekNumber(request.getWeekNumber());
 
         week.setStatus(CascadaStatus.DRAFT);
         week.setUpdatedAt(now);
@@ -348,7 +372,10 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
     @Transactional
     public void updateCascadaStatus(
             Long plantId,
+            LocalDate weekDate,
             LocalDate weekStartDate,
+            LocalDate weekEndDate,
+            Integer weekNumber,
             String shiftId,
             String dayKey,
             String status,
@@ -357,9 +384,6 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
     ) {
         if (plantId == null) {
             throw new RuntimeException("plantId is required");
-        }
-        if (weekStartDate == null) {
-            throw new RuntimeException("weekStartDate is required");
         }
         if (shiftId == null || shiftId.isBlank()) {
             throw new RuntimeException("shiftId is required");
@@ -382,8 +406,17 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
             throw new RuntimeException("status must be SENT or DELETED");
         }
 
+        LocalDate effectiveWeekDate = weekDate != null ? weekDate : weekStartDate;
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+                effectiveWeekDate,
+                weekStartDate,
+                weekEndDate,
+                weekNumber
+        );
+        LocalDate effectiveWeekStartDate = weekMetadata.getWeekStartDate();
+
         CascadaStandardWeek week = weekRepository
-                .findByPlantPlantIdAndWeekStartDateAndShiftId(plantId, weekStartDate, shiftId)
+                .findByPlantPlantIdAndWeekStartDateAndShiftId(plantId, effectiveWeekStartDate, shiftId)
                 .orElse(null);
 
         if (week == null) {
@@ -398,6 +431,9 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
             week.setSentAt(week.getSentAt() == null ? now : week.getSentAt());
             week.setSentByUserId(week.getSentByUserId() == null ? userId : week.getSentByUserId());
         }
+        week.setWeekStartDate(effectiveWeekStartDate);
+        week.setWeekEndDate(weekMetadata.getWeekEndDate());
+        week.setWeekNumber(weekMetadata.getWeekNumber());
         week.setStatus(targetStatus);
         week.setUpdatedAt(now);
         week.setUpdatedByUserId(userId);
@@ -410,14 +446,14 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
             if (dayKey == null) {
                 cascadaRecipientRepository.deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndCascadaType(
                         plantId,
-                        weekStartDate,
+                        effectiveWeekStartDate,
                         shiftId,
                         CascadaType.STANDARD
                 );
             } else {
                 cascadaRecipientRepository.deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndDayKeyAndCascadaType(
                         plantId,
-                        weekStartDate,
+                        effectiveWeekStartDate,
                         shiftId,
                         dayKey,
                         CascadaType.STANDARD
@@ -428,7 +464,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
             for (Long recipientUserId : recipientUserIds) {
                 CascadaRecipient recipient = new CascadaRecipient();
                 recipient.setPlant(plant);
-                recipient.setWeekStartDate(weekStartDate);
+                recipient.setWeekStartDate(effectiveWeekStartDate);
                 recipient.setShiftId(shiftId);
                 recipient.setDayKey(dayKey);
                 recipient.setCascadaType(CascadaType.STANDARD);
@@ -439,15 +475,15 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
             }
             cascadaRecipientRepository.saveAll(recipients);
 
-            publishInboxMessagesForStatus(targetStatus.name(), plantId, weekStartDate, recipientUserIds);
+            publishInboxMessagesForStatus(targetStatus.name(), plantId, effectiveWeekStartDate, recipientUserIds);
             return;
         }
 
         publishInboxMessagesForStatus(
                 targetStatus.name(),
                 plantId,
-                weekStartDate,
-                recipientUserIdsFor(plantId, weekStartDate, shiftId, dayKey)
+                effectiveWeekStartDate,
+                recipientUserIdsFor(plantId, effectiveWeekStartDate, shiftId, dayKey)
         );
     }
 
@@ -462,6 +498,13 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         if (status == null || status.isBlank()) {
             throw new RuntimeException("status is required");
         }
+        WeekMetadataResolver.ResolvedWeekMetadata requestedWeekMetadata = WeekMetadataResolver.resolve(
+                weekStartDate,
+                null,
+                null,
+                null
+        );
+        LocalDate effectiveWeekStartDate = requestedWeekMetadata.getWeekStartDate();
 
         CascadaStatus cascadaStatus;
         try {
@@ -471,11 +514,19 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         }
 
         List<CascadaStandardWeek> weeks = weekRepository
-                .findByPlantPlantIdAndWeekStartDateAndStatus(plantId, weekStartDate, cascadaStatus);
+                .findByPlantPlantIdAndWeekStartDateAndStatus(plantId, effectiveWeekStartDate, cascadaStatus);
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = weeks.isEmpty()
+                ? requestedWeekMetadata
+                : WeekMetadataResolver.resolve(
+                        weeks.get(0).getWeekStartDate(),
+                        weeks.get(0).getWeekStartDate(),
+                        weeks.get(0).getWeekEndDate(),
+                        weeks.get(0).getWeekNumber()
+                );
         Map<String, CascadaStandardWeek> weekByShiftId = weeks.stream()
                 .collect(Collectors.toMap(CascadaStandardWeek::getShiftId, week -> week, (a, b) -> a, LinkedHashMap::new));
         List<CascadaStandardManualRow> manualRows = manualRowRepository
-                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualStandardRowIdAsc(plantId, weekStartDate);
+                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualStandardRowIdAsc(plantId, effectiveWeekStartDate);
         List<ShiftDTO> shifts = shiftService.getShiftsByPlant(plantId);
 
         List<CascadaWeekItemDTO> items = new ArrayList<>();
@@ -500,12 +551,26 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         }
 
         CascadaWeekTotalsDTO totals = buildWeekTotals(plantId, items);
-        return new CascadaWeekResponseDTO(plantId, weekStartDate, status, items, totals);
+        return new CascadaWeekResponseDTO(
+                plantId,
+                weekMetadata.getWeekStartDate(),
+                weekMetadata.getWeekEndDate(),
+                weekMetadata.getWeekNumber(),
+                status,
+                items,
+                totals
+        );
     }
 
     @Override
     public StandardWeeklyResponseDTO getStandardWeeklyView(Long plantId, LocalDate weekDate, String status) {
-        CascadaWeekResponseDTO weekResponse = getWeekCascadas(plantId, weekDate, status);
+        WeekMetadataResolver.ResolvedWeekMetadata requestedWeekMetadata = WeekMetadataResolver.resolve(
+                weekDate,
+                null,
+                null,
+                null
+        );
+        CascadaWeekResponseDTO weekResponse = getWeekCascadas(plantId, requestedWeekMetadata.getWeekStartDate(), status);
         List<CascadaWeekItemDTO> items = weekResponse.getItems();
         List<ShiftDTO> shiftList = shiftService.getShiftsByPlant(plantId);
         Map<Long, StandardWeeklyShiftDTO> shifts = new LinkedHashMap<>();
@@ -546,7 +611,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
 
         return new StandardWeeklyResponseDTO(
                 plantId,
-                weekDate,
+                weekResponse.getWeekStartDate(),
                 status,
                 List.copyOf(shifts.values())
         );
@@ -575,8 +640,15 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                     .toList();
         }
         if (weekStartDate != null) {
+            WeekMetadataResolver.ResolvedWeekMetadata requestedWeekMetadata = WeekMetadataResolver.resolve(
+                    weekStartDate,
+                    null,
+                    null,
+                    null
+            );
+            LocalDate effectiveWeekStartDate = requestedWeekMetadata.getWeekStartDate();
             weeks = weeks.stream()
-                    .filter(week -> week.getWeekStartDate().equals(weekStartDate))
+                    .filter(week -> week.getWeekStartDate().equals(effectiveWeekStartDate))
                     .toList();
         }
 
@@ -609,8 +681,10 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
 
             java.util.Set<String> shiftIds = groupWeeks.stream()
                     .map(CascadaStandardWeek::getShiftId)
-                    .collect(java.util.stream.Collectors.toSet());
-            java.util.Set<String> dayKeys = new java.util.HashSet<>();
+                    .filter(java.util.Objects::nonNull)
+                    .sorted(this::compareShiftIds)
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+            java.util.Set<String> dayKeys = new java.util.LinkedHashSet<>();
             for (CascadaStandardWeek week : groupWeeks) {
                 List<CascadaStandardCell> cells = cellRepository.findByWeek(week);
                 for (CascadaStandardCell cell : cells) {
@@ -637,8 +711,13 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                     latest.getPlant().getCompany().getCompanyName(),
                     sentBy,
                     latest.getWeekStartDate(),
+                    latest.getWeekStartDate(),
+                    latest.getWeekEndDate() != null ? latest.getWeekEndDate() : latest.getWeekStartDate().plusDays(6),
+                    latest.getWeekNumber() != null
+                            ? latest.getWeekNumber()
+                            : WeekMetadataResolver.resolve(latest.getWeekStartDate(), latest.getWeekStartDate(), null, null).getWeekNumber(),
                     shiftIds,
-                    dayKeys,
+                    orderDayKeys(dayKeys),
                     latest.getSentAt()
             ));
         }
@@ -1171,7 +1250,35 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
     }
 
     private String stableCascadaId(Long plantId, LocalDate weekStartDate) {
-        return plantId + "-" + weekStartDate;
+        return "standard-" + plantId + "-" + weekStartDate;
+    }
+
+    private java.util.Set<String> orderDayKeys(java.util.Set<String> dayKeys) {
+        return dayKeys.stream()
+                .filter(java.util.Objects::nonNull)
+                .sorted(java.util.Comparator.comparingInt(this::dayOrder))
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+    }
+
+    private int dayOrder(String dayKey) {
+        return switch (dayKey == null ? "" : dayKey.trim().toLowerCase()) {
+            case "lun" -> 1;
+            case "mar" -> 2;
+            case "mie" -> 3;
+            case "jue" -> 4;
+            case "vie" -> 5;
+            case "sab" -> 6;
+            case "dom" -> 7;
+            default -> Integer.MAX_VALUE;
+        };
+    }
+
+    private int compareShiftIds(String left, String right) {
+        try {
+            return Long.compare(Long.parseLong(left), Long.parseLong(right));
+        } catch (NumberFormatException ex) {
+            return String.valueOf(left).compareTo(String.valueOf(right));
+        }
     }
 
     private StandardWeeklyRowDTO toStandardWeeklyRow(CascadaRowDTO row) {

@@ -93,6 +93,9 @@ public class CascadaStandardController {
         cascadaStandardService.updateCascadaStatus(
                 plantId,
                 request.getWeekDate(),
+                request.getWeekStartDate(),
+                request.getWeekEndDate(),
+                request.getWeekNumber(),
                 request.getShiftId(),
                 request.getDayKey(),
                 request.getStatus(),
@@ -117,6 +120,9 @@ public class CascadaStandardController {
         cascadaStandardService.updateCascadaStatus(
                 plantId,
                 weekDate,
+                null,
+                null,
+                null,
                 shiftId,
                 dayKey,
                 "DELETED",

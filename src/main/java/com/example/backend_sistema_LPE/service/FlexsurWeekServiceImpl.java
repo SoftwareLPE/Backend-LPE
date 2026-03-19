@@ -355,14 +355,15 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                     .toList();
         }
         if (weekDate != null) {
+            LocalDate effectiveRequestedWeekStartDate = WeekMetadataResolver.resolve(weekDate, null, null, null).getWeekStartDate();
             weeks = weeks.stream()
-                    .filter(week -> week.getWeekDate().equals(weekDate))
+                    .filter(week -> resolveWeekStartDate(week).equals(effectiveRequestedWeekStartDate))
                     .toList();
         }
 
         java.util.Map<String, List<FlexsurWeek>> grouped = weeks.stream()
                 .collect(java.util.stream.Collectors.groupingBy(week ->
-                        week.getPlant().getPlantId() + "|" + week.getWeekDate()
+                        week.getPlant().getPlantId() + "|" + resolveWeekStartDate(week)
                 ));
 
         List<CascadaSummaryDTO> summaries = new ArrayList<>();
@@ -373,10 +374,11 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                     .max(java.util.Comparator.comparing(FlexsurWeek::getSentAt))
                     .orElse(groupWeeks.get(0));
 
+            LocalDate effectiveWeekStartDate = resolveWeekStartDate(latest);
             java.util.Set<String> shiftIds = java.util.Set.of();
             java.util.Set<String> dayKeys = groupWeeks.stream()
                     .flatMap(week -> week.getDetails().stream().map(detail -> mapDayKey(detail.getServiceDate())))
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
 
             String sentBy = null;
             if (latest.getSentByUserId() != null) {
@@ -388,15 +390,18 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
 
             summaries.add(new CascadaSummaryDTO(
                     latest.getFlexsurWeekId(),
-                    latest.getPlant().getPlantId() + "-" + latest.getWeekDate(),
+                    stableCascadaId(latest.getPlant().getPlantId(), effectiveWeekStartDate),
                     latest.getPlant().getPlantId(),
                     latest.getPlant().getPlantName(),
                     latest.getPlant().getCompany().getCompanyId(),
                     latest.getPlant().getCompany().getCompanyName(),
                     sentBy,
-                    latest.getWeekDate(),
+                    effectiveWeekStartDate,
+                    effectiveWeekStartDate,
+                    resolveWeekEndDate(latest),
+                    resolveWeekNumber(latest),
                     shiftIds,
-                    dayKeys,
+                    orderDayKeys(dayKeys),
                     latest.getSentAt()
             ));
         }
@@ -692,5 +697,41 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         );
 
         messagingTemplate.convertAndSend("/topic/inbox/" + userId, payload);
+    }
+
+    private String stableCascadaId(Long plantId, LocalDate weekStartDate) {
+        return "flexsur-" + plantId + "-" + weekStartDate;
+    }
+
+    private LocalDate resolveWeekStartDate(FlexsurWeek week) {
+        return WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekStartDate();
+    }
+
+    private LocalDate resolveWeekEndDate(FlexsurWeek week) {
+        return WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekEndDate();
+    }
+
+    private Integer resolveWeekNumber(FlexsurWeek week) {
+        return WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekNumber();
+    }
+
+    private java.util.Set<String> orderDayKeys(java.util.Set<String> dayKeys) {
+        return dayKeys.stream()
+                .filter(java.util.Objects::nonNull)
+                .sorted(java.util.Comparator.comparingInt(this::dayOrder))
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+    }
+
+    private int dayOrder(String dayKey) {
+        return switch (dayKey == null ? "" : dayKey.trim().toLowerCase()) {
+            case "lun" -> 1;
+            case "mar" -> 2;
+            case "mie" -> 3;
+            case "jue" -> 4;
+            case "vie" -> 5;
+            case "sab" -> 6;
+            case "dom" -> 7;
+            default -> Integer.MAX_VALUE;
+        };
     }
 }

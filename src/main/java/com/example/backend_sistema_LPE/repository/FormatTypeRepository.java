@@ -9,4 +9,6 @@ import java.util.Optional;
 @Repository
 public interface FormatTypeRepository extends JpaRepository<FormatType, Long> {
     Optional<FormatType> findByNameIgnoreCase(String name);
+
+    Optional<FormatType> findByFormatCatalogId(Long formatCatalogId);
 }

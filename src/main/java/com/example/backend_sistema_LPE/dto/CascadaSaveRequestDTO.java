@@ -14,6 +14,11 @@ public class CascadaSaveRequestDTO {
 
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate weekStartDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate weekEndDate;
+    private Integer weekNumber;
 
     private String dayKey;
     private List<CascadaStandardManualRowDTO> manualRows;

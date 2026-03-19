@@ -17,6 +17,11 @@ public class FormatWeekSaveRequestDTO {
     private Long plantId;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate weekStartDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate weekEndDate;
+    private Integer weekNumber;
     private Long shiftId;
     private Long formatTypeId;
     private List<FormatWeekManualRowDTO> manualRows;

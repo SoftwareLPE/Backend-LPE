@@ -6,10 +6,14 @@ import com.example.backend_sistema_LPE.dto.FormatWeekRowDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekSchemaDTO;
 import com.example.backend_sistema_LPE.dto.FormatWeekTurnDTO;
 import com.example.backend_sistema_LPE.dto.ShiftDTO;
+import com.example.backend_sistema_LPE.model.FormatWeek;
 import com.example.backend_sistema_LPE.model.FormatType;
 import com.example.backend_sistema_LPE.model.Plant;
+import com.example.backend_sistema_LPE.model.User;
 import com.example.backend_sistema_LPE.repository.FormatTypeRepository;
+import com.example.backend_sistema_LPE.repository.FormatWeekRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
+import com.example.backend_sistema_LPE.repository.UserRepository;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
@@ -28,6 +32,7 @@ import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -40,17 +45,23 @@ public class FormatWeekPdfService {
     private final PlantRepository plantRepository;
     private final FormatTypeRepository formatTypeRepository;
     private final ShiftService shiftService;
+    private final FormatWeekRepository formatWeekRepository;
+    private final UserRepository userRepository;
 
     public FormatWeekPdfService(
             FormatWeekService formatWeekService,
             PlantRepository plantRepository,
             FormatTypeRepository formatTypeRepository,
-            ShiftService shiftService
+            ShiftService shiftService,
+            FormatWeekRepository formatWeekRepository,
+            UserRepository userRepository
     ) {
         this.formatWeekService = formatWeekService;
         this.plantRepository = plantRepository;
         this.formatTypeRepository = formatTypeRepository;
         this.shiftService = shiftService;
+        this.formatWeekRepository = formatWeekRepository;
+        this.userRepository = userRepository;
     }
 
     public byte[] buildCustomWeeklyPdf(Long plantId, LocalDate weekDate) {
@@ -77,11 +88,12 @@ public class FormatWeekPdfService {
         List<ShiftDTO> shifts = shiftService.getShiftsByPlant(plantId);
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        Document document = new Document(PageSize.A4.rotate(), 20, 20, 20, 20);
+        Document document = new Document(PageSize.A3.rotate(), 10, 10, 12, 12);
         PdfWriter.getInstance(document, outputStream);
         document.open();
 
-        addHeader(document, plant, formatType, weekDate);
+        HeaderMetadata headerMetadata = resolveHeaderMetadata(plant, weekDate);
+        addHeader(document, plant, headerMetadata);
 
         List<FormatWeekRowDTO> allRows = new ArrayList<>();
         for (ShiftDTO shift : shifts) {
@@ -102,23 +114,25 @@ public class FormatWeekPdfService {
         return outputStream.toByteArray();
     }
 
-    private void addHeader(Document document, Plant plant, FormatType formatType, LocalDate weekDate) {
-        Font smallFont = FontFactory.getFont(FontFactory.HELVETICA, 12, Font.BOLD, Color.BLACK);
-        Font plantFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 26, Color.BLACK);
-        Font metaFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, Color.BLACK);
+    private void addHeader(Document document, Plant plant, HeaderMetadata headerMetadata) {
+        Font companyFont = FontFactory.getFont(FontFactory.HELVETICA, 9, Font.BOLD, Color.BLACK);
+        Font plantFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, Color.BLACK);
+        Font metaFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, Color.BLACK);
 
         PdfPTable wrapper = new PdfPTable(2);
         wrapper.setWidthPercentage(100);
-        wrapper.setWidths(new float[]{38f, 62f});
-        wrapper.setSpacingAfter(14f);
+        wrapper.setWidths(new float[]{42f, 58f});
+        wrapper.setSpacingAfter(8f);
 
-        PdfPCell leftCell = new PdfPCell(buildLeftHeaderTable(plant, formatType, smallFont, plantFont));
+        PdfPCell leftCell = new PdfPCell(buildLeftHeaderTable(plant, companyFont, plantFont));
         leftCell.setBorder(Rectangle.NO_BORDER);
-        leftCell.setPaddingRight(20f);
+        leftCell.setPaddingRight(14f);
+        leftCell.setVerticalAlignment(Element.ALIGN_BOTTOM);
 
-        PdfPCell rightCell = new PdfPCell(buildRightHeaderTable(plant, weekDate, metaFont));
+        PdfPCell rightCell = new PdfPCell(buildRightHeaderTable(headerMetadata, metaFont));
         rightCell.setBorder(Rectangle.NO_BORDER);
-        rightCell.setPaddingLeft(20f);
+        rightCell.setPaddingLeft(14f);
+        rightCell.setVerticalAlignment(Element.ALIGN_BOTTOM);
 
         wrapper.addCell(leftCell);
         wrapper.addCell(rightCell);
@@ -131,8 +145,8 @@ public class FormatWeekPdfService {
             List<FormatWeekRowDTO> rows,
             Map<String, List<FormatWeekTurnDTO>> turnConfigsByDay
     ) {
-        Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7);
-        Font cellFont = FontFactory.getFont(FontFactory.HELVETICA, 7);
+        Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 6);
+        Font cellFont = FontFactory.getFont(FontFactory.HELVETICA, 5);
 
         List<String> orderedDays = orderDays(null, turnConfigsByDay.keySet());
         List<String> baseColumns = schema.getBaseColumns() == null ? List.of() : schema.getBaseColumns();
@@ -146,7 +160,7 @@ public class FormatWeekPdfService {
 
         PdfPTable table = new PdfPTable(columns);
         table.setWidthPercentage(100);
-        table.setWidths(buildColumnWidths(columns, baseColumns.size()));
+        table.setWidths(buildColumnWidths(columns, baseColumns));
 
         for (String base : baseColumns) {
             PdfPCell header = primaryHeaderCell(base, headerFont);
@@ -171,7 +185,7 @@ public class FormatWeekPdfService {
         for (String dayKey : orderedDays) {
             List<FormatWeekTurnDTO> configs = turnConfigsByDay.getOrDefault(dayKey, List.of());
             for (FormatWeekTurnDTO config : configs) {
-                table.addCell(secondaryHeaderCell(config.getTurnName(), headerFont));
+                table.addCell(secondaryHeaderCell(displayTurnHeader(config.getTurnName()), headerFont));
             }
         }
 
@@ -289,8 +303,7 @@ public class FormatWeekPdfService {
         int mergedColumns = Math.max(baseColumns.size(), 1);
         PdfPCell labelCell = totalBodyCell(label, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7, Color.BLACK));
         labelCell.setColspan(mergedColumns);
-        labelCell.setHorizontalAlignment(Element.ALIGN_LEFT);
-        labelCell.setPaddingLeft(6f);
+        labelCell.setHorizontalAlignment(Element.ALIGN_CENTER);
         table.addCell(labelCell);
     }
 
@@ -305,7 +318,7 @@ public class FormatWeekPdfService {
             int labelColumnIndex = baseColumns.size() > 1 ? 1 : 0;
             for (int i = 0; i < baseColumns.size(); i++) {
                 if (i == labelColumnIndex) {
-                    table.addCell(leftBodyCell(label, cellFont));
+                    table.addCell(bodyCell(label, cellFont));
                 } else {
                     table.addCell(bodyCell("", cellFont));
                 }
@@ -315,8 +328,7 @@ public class FormatWeekPdfService {
 
         for (String column : baseColumns) {
             String value = resolveBaseColumnValue(column, row);
-            boolean alignLeft = shouldAlignLeft(column);
-            table.addCell(alignLeft ? leftBodyCell(value, cellFont) : bodyCell(value, cellFont));
+            table.addCell(bodyCell(value, cellFont));
         }
     }
 
@@ -357,7 +369,26 @@ public class FormatWeekPdfService {
             mergeRow(existing, row);
         }
 
-        return new ArrayList<>(merged.values());
+        List<FormatWeekRowDTO> orderedRows = new ArrayList<>(merged.values());
+        orderedRows.sort(buildRowComparator());
+        return orderedRows;
+    }
+
+    private Comparator<FormatWeekRowDTO> buildRowComparator() {
+        return Comparator
+                .comparing(this::isExtraRow)
+                .thenComparing(row -> row.getRouteId() == null ? Long.MAX_VALUE : row.getRouteId())
+                .thenComparing(row -> safeSortableValue(row.getRouteName()))
+                .thenComparing(row -> safeSortableValue(row.getSecondaryValue()))
+                .thenComparing(row -> safeSortableValue(formatDriverName(row.getDriverName(), row.getDriverLastName())));
+    }
+
+    private boolean isExtraRow(FormatWeekRowDTO row) {
+        return row != null && Boolean.TRUE.equals(row.getExtraRow());
+    }
+
+    private String safeSortableValue(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 
     private String rowKey(FormatWeekRowDTO row, boolean usesDriver) {
@@ -427,17 +458,38 @@ public class FormatWeekPdfService {
         }
     }
 
-    private float[] buildColumnWidths(int columns, int baseColumns) {
-        float baseWidth = columns <= 0 ? 1f : 100f / columns;
+    private float[] buildColumnWidths(int columns, List<String> baseColumns) {
         float[] widths = new float[columns];
+        int baseColumnCount = baseColumns == null ? 0 : baseColumns.size();
+
         for (int i = 0; i < columns; i++) {
-            widths[i] = baseWidth;
+            widths[i] = 0.78f;
         }
-        for (int i = 0; i < baseColumns; i++) {
-            widths[i] = i == 0 ? baseWidth * 1.45f : baseWidth * 1.6f;
+        for (int i = 0; i < baseColumnCount; i++) {
+            widths[i] = resolveBaseColumnWidth(baseColumns.get(i));
         }
-        widths[columns - 1] = baseWidth * 1.15f;
+        widths[columns - 1] = 1.1f;
         return widths;
+    }
+
+    private float resolveBaseColumnWidth(String columnLabel) {
+        if (columnLabel == null) {
+            return 1.6f;
+        }
+        String normalized = columnLabel.trim().toLowerCase();
+        if (normalized.contains("ruta")) {
+            return 1.6f;
+        }
+        if (normalized.contains("recorrido") || normalized.contains("servicio")) {
+            return 2.9f;
+        }
+        if (normalized.contains("unidad")) {
+            return 2.4f;
+        }
+        if (normalized.contains("chofer")) {
+            return 2.7f;
+        }
+        return 1.8f;
     }
 
     private List<String> orderDays(java.util.Collection<String> shiftDayKeys, java.util.Collection<String> schemaDayKeys) {
@@ -469,10 +521,10 @@ public class FormatWeekPdfService {
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
         cell.setBackgroundColor(new Color(220, 0, 0));
-        cell.setPadding(5f);
+        cell.setPadding(2.2f);
         cell.setBorderColor(Color.BLACK);
         cell.setBorderWidth(1f);
-        cell.setPhrase(new Phrase(text == null ? "" : text, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, Color.WHITE)));
+        cell.setPhrase(new Phrase(text == null ? "" : text, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 6, Color.WHITE)));
         return cell;
     }
 
@@ -481,7 +533,7 @@ public class FormatWeekPdfService {
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
         cell.setBackgroundColor(Color.WHITE);
-        cell.setPadding(4f);
+        cell.setPadding(1.6f);
         cell.setBorderColor(Color.BLACK);
         cell.setBorderWidth(0.8f);
         return cell;
@@ -491,21 +543,14 @@ public class FormatWeekPdfService {
         PdfPCell cell = new PdfPCell(new Phrase(text == null ? "" : text, font));
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setPadding(4f);
+        cell.setPadding(1.6f);
         cell.setBorderColor(new Color(190, 200, 210));
         cell.setBorderWidth(0.45f);
         return cell;
     }
 
-    private PdfPCell leftBodyCell(String text, Font font) {
-        PdfPCell cell = bodyCell(text, font);
-        cell.setHorizontalAlignment(Element.ALIGN_LEFT);
-        cell.setPaddingLeft(6f);
-        return cell;
-    }
-
     private PdfPCell totalBodyCell(String text, Font font) {
-        PdfPCell cell = bodyCell(text, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7, Color.BLACK));
+        PdfPCell cell = bodyCell(text, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 5, Color.BLACK));
         cell.setBackgroundColor(new Color(250, 250, 250));
         return cell;
     }
@@ -537,40 +582,28 @@ public class FormatWeekPdfService {
         return "";
     }
 
-    private boolean shouldAlignLeft(String columnLabel) {
-        if (columnLabel == null) {
-            return false;
-        }
-        String normalized = columnLabel.trim().toLowerCase();
-        return normalized.contains("ruta")
-                || normalized.contains("recorrido")
-                || normalized.contains("servicio")
-                || normalized.contains("chofer")
-                || normalized.contains("unidad");
-    }
-
     private PdfPTable buildLeftHeaderTable(
             Plant plant,
-            FormatType formatType,
-            Font smallFont,
+            Font companyFont,
             Font plantFont
     ) {
         PdfPTable table = new PdfPTable(1);
         table.setWidthPercentage(100);
 
-        PdfPCell formatCell = new PdfPCell(new Phrase(formatDisplayName(formatType), smallFont));
-        formatCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        formatCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        formatCell.setPadding(10f);
-        formatCell.setBorderColor(Color.BLACK);
-        formatCell.setBorderWidth(1.2f);
-        table.addCell(formatCell);
+        PdfPCell companyCell = new PdfPCell(new Phrase(resolveCompanyName(plant), companyFont));
+        companyCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        companyCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        companyCell.setPaddingTop(5f);
+        companyCell.setPaddingBottom(5f);
+        companyCell.setBorderColor(Color.BLACK);
+        companyCell.setBorderWidth(1.2f);
+        table.addCell(companyCell);
 
         PdfPCell plantCell = new PdfPCell(new Phrase(safeValue(plant.getPlantName()).toUpperCase(Locale.ROOT), plantFont));
         plantCell.setHorizontalAlignment(Element.ALIGN_CENTER);
         plantCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        plantCell.setPaddingTop(18f);
-        plantCell.setPaddingBottom(18f);
+        plantCell.setPaddingTop(10f);
+        plantCell.setPaddingBottom(10f);
         plantCell.setBorderColor(Color.BLACK);
         plantCell.setBorderWidth(1.2f);
         table.addCell(plantCell);
@@ -578,19 +611,30 @@ public class FormatWeekPdfService {
         return table;
     }
 
-    private PdfPTable buildRightHeaderTable(Plant plant, LocalDate weekDate, Font metaFont) {
-        PdfPTable table = new PdfPTable(2);
+    private PdfPTable buildRightHeaderTable(HeaderMetadata headerMetadata, Font metaFont) {
+        PdfPTable table = new PdfPTable(3);
         table.setWidthPercentage(100);
         try {
-            table.setWidths(new float[]{34f, 46f});
+            table.setWidths(new float[]{30f, 54f, 16f});
         } catch (Exception ignored) {
             // Static widths
         }
 
         table.addCell(metaLabelCell("SEMANA", metaFont));
-        table.addCell(metaValueCell(formatWeekRange(weekDate), metaFont));
+        table.addCell(metaValueCell(formatWeekRange(headerMetadata.getWeekStartDate(), headerMetadata.getWeekEndDate()), metaFont));
+        PdfPCell weekNumberCell = new PdfPCell(new Phrase(String.valueOf(headerMetadata.getWeekNumber()),
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18, Color.BLACK)));
+        weekNumberCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        weekNumberCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        weekNumberCell.setRowspan(2);
+        weekNumberCell.setPaddingTop(6f);
+        weekNumberCell.setPaddingBottom(6f);
+        weekNumberCell.setBorderColor(Color.BLACK);
+        weekNumberCell.setBorderWidth(1.2f);
+        table.addCell(weekNumberCell);
+
         table.addCell(metaLabelCell("COORDINADOR", metaFont));
-        table.addCell(metaValueCell("", metaFont));
+        table.addCell(metaValueCell(safeValue(headerMetadata.getCoordinatorName()), metaFont));
         return table;
     }
 
@@ -598,7 +642,7 @@ public class FormatWeekPdfService {
         PdfPCell cell = new PdfPCell(new Phrase(text, font));
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setPadding(8f);
+        cell.setPadding(5f);
         cell.setBorderColor(Color.BLACK);
         cell.setBorderWidth(1.2f);
         return cell;
@@ -608,25 +652,106 @@ public class FormatWeekPdfService {
         PdfPCell cell = new PdfPCell(new Phrase(text, font));
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setPadding(8f);
+        cell.setPadding(5f);
         cell.setBorderColor(Color.BLACK);
         cell.setBorderWidth(1.2f);
         return cell;
     }
 
-    private String formatDisplayName(FormatType formatType) {
-        if (formatType == null || formatType.getName() == null) {
-            return "CUSTOM";
-        }
-        return formatType.getName().replace('_', ' ').toUpperCase(Locale.ROOT);
-    }
-
-    private String formatWeekRange(LocalDate weekDate) {
-        if (weekDate == null) {
+    private String displayTurnHeader(String turnName) {
+        if (turnName == null) {
             return "";
         }
-        LocalDate endDate = weekDate.plusDays(6);
-        return formatSpanishDate(weekDate) + " AL " + formatSpanishDate(endDate);
+        String normalized = turnName.trim().toUpperCase(Locale.ROOT);
+        if (normalized.startsWith("TE")) {
+            return "TE";
+        }
+        return turnName;
+    }
+
+    private String resolveCompanyName(Plant plant) {
+        if (plant == null || plant.getCompany() == null || plant.getCompany().getCompanyName() == null) {
+            return "";
+        }
+        return plant.getCompany().getCompanyName().toUpperCase(Locale.ROOT);
+    }
+
+    private HeaderMetadata resolveHeaderMetadata(Plant plant, LocalDate weekDate) {
+        if (plant == null || plant.getPlantId() == null || plant.getFormatTypeId() == null || weekDate == null) {
+            WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(weekDate, null, null, null);
+            return new HeaderMetadata(
+                    weekMetadata.getWeekStartDate(),
+                    weekMetadata.getWeekEndDate(),
+                    weekMetadata.getWeekNumber(),
+                    ""
+            );
+        }
+
+        List<FormatWeek> weeks = formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
+                plant.getPlantId(),
+                weekDate,
+                plant.getFormatTypeId()
+        );
+        if (weeks == null || weeks.isEmpty()) {
+            WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(weekDate, null, null, null);
+            return new HeaderMetadata(
+                    weekMetadata.getWeekStartDate(),
+                    weekMetadata.getWeekEndDate(),
+                    weekMetadata.getWeekNumber(),
+                    ""
+            );
+        }
+
+        FormatWeek latest = weeks.stream()
+                .filter(week -> week.getSentAt() != null)
+                .max(Comparator.comparing(FormatWeek::getSentAt))
+                .orElseGet(() -> weeks.stream()
+                        .filter(week -> week.getUpdatedAt() != null)
+                        .max(Comparator.comparing(FormatWeek::getUpdatedAt))
+                        .orElse(weeks.get(0)));
+
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+                latest.getWeekDate(),
+                latest.getWeekStartDate(),
+                latest.getWeekEndDate(),
+                latest.getWeekNumber()
+        );
+
+        String coordinatorName = "";
+        Long sentById = latest.getSentByUserId() != null ? latest.getSentByUserId() : latest.getUpdatedByUserId();
+        if (sentById != null) {
+            User user = userRepository.findById(sentById).orElse(null);
+            if (user != null && user.getUserName() != null) {
+                coordinatorName = user.getUserName().toUpperCase(Locale.ROOT);
+            }
+        }
+
+        return new HeaderMetadata(
+                weekMetadata.getWeekStartDate(),
+                weekMetadata.getWeekEndDate(),
+                weekMetadata.getWeekNumber(),
+                coordinatorName
+        );
+    }
+
+    private String formatWeekRange(LocalDate weekStartDate, LocalDate weekEndDate) {
+        if (weekStartDate == null || weekEndDate == null) {
+            return "";
+        }
+        if (weekStartDate.getYear() == weekEndDate.getYear()
+                && weekStartDate.getMonth() == weekEndDate.getMonth()) {
+            String month = weekEndDate.getMonth().getDisplayName(TextStyle.FULL, new Locale("es", "MX"))
+                    .toUpperCase(Locale.ROOT);
+            return String.format(
+                    Locale.ROOT,
+                    "%02d AL %02d DE %s %04d",
+                    weekStartDate.getDayOfMonth(),
+                    weekEndDate.getDayOfMonth(),
+                    month,
+                    weekEndDate.getYear()
+            );
+        }
+        return formatSpanishDate(weekStartDate) + " AL " + formatSpanishDate(weekEndDate);
     }
 
     private String formatSpanishDate(LocalDate date) {
@@ -646,5 +771,40 @@ public class FormatWeekPdfService {
 
     private String safeValue(String value) {
         return value == null ? "" : value;
+    }
+
+    private static final class HeaderMetadata {
+        private final LocalDate weekStartDate;
+        private final LocalDate weekEndDate;
+        private final int weekNumber;
+        private final String coordinatorName;
+
+        private HeaderMetadata(
+                LocalDate weekStartDate,
+                LocalDate weekEndDate,
+                int weekNumber,
+                String coordinatorName
+        ) {
+            this.weekStartDate = weekStartDate;
+            this.weekEndDate = weekEndDate;
+            this.weekNumber = weekNumber;
+            this.coordinatorName = coordinatorName;
+        }
+
+        private LocalDate getWeekStartDate() {
+            return weekStartDate;
+        }
+
+        private LocalDate getWeekEndDate() {
+            return weekEndDate;
+        }
+
+        private int getWeekNumber() {
+            return weekNumber;
+        }
+
+        private String getCoordinatorName() {
+            return coordinatorName;
+        }
     }
 }

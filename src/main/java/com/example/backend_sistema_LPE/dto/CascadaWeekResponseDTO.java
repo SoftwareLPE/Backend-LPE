@@ -15,6 +15,8 @@ import java.util.List;
 public class CascadaWeekResponseDTO {
     private Long plantId;
     private LocalDate weekStartDate;
+    private LocalDate weekEndDate;
+    private Integer weekNumber;
     private String status;
     private List<CascadaWeekItemDTO> items;
     private CascadaWeekTotalsDTO totals;
