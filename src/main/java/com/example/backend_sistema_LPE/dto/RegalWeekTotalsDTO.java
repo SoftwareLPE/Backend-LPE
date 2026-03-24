@@ -15,4 +15,5 @@ public class RegalWeekTotalsDTO {
     private Map<Long, Map<String, Integer>> byTripTypeDay;
     private Map<Long, Integer> byTripType;
     private Integer weekTotal;
+    private RegalWeeklySummaryDTO weeklySummary;
 }

@@ -18,6 +18,7 @@ public class CreateFlexsurManualRowRequestDTO {
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;
 
+    private Long shiftId;
     private String serviceName;
     private Integer sortOrder;
 }

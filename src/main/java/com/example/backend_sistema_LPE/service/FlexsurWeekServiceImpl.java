@@ -14,21 +14,30 @@ import com.example.backend_sistema_LPE.dto.FlexsurWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.FlexsurWeekTotalsDTO;
 import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
 import com.example.backend_sistema_LPE.dto.UpdateFlexsurManualRowRequestDTO;
+import com.example.backend_sistema_LPE.enums.CascadaType;
 import com.example.backend_sistema_LPE.enums.CascadaStatus;
+import com.example.backend_sistema_LPE.model.CascadaRecipient;
 import com.example.backend_sistema_LPE.model.FlexsurDetail;
 import com.example.backend_sistema_LPE.model.FlexsurManualRow;
 import com.example.backend_sistema_LPE.model.FlexsurService;
 import com.example.backend_sistema_LPE.model.FlexsurWeek;
+import com.example.backend_sistema_LPE.model.FlexsurWeekTotalsSnapshot;
 import com.example.backend_sistema_LPE.model.Plant;
+import com.example.backend_sistema_LPE.model.Shift;
 import com.example.backend_sistema_LPE.model.User;
 import com.example.backend_sistema_LPE.repository.FlexsurManualRowRepository;
 import com.example.backend_sistema_LPE.repository.FlexsurServiceRepository;
 import com.example.backend_sistema_LPE.repository.FlexsurWeekRepository;
+import com.example.backend_sistema_LPE.repository.FlexsurWeekTotalsSnapshotRepository;
+import com.example.backend_sistema_LPE.repository.CascadaRecipientRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
+import com.example.backend_sistema_LPE.repository.ShiftRepository;
 import com.example.backend_sistema_LPE.repository.UserRepository;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -41,13 +50,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class FlexsurWeekServiceImpl implements FlexsurWeekService {
+    private static final String FLEXSUR_ALL_SHIFTS_RECIPIENT_KEY = "FLEXSUR";
+
     private final FlexsurWeekRepository flexsurWeekRepository;
     private final FlexsurManualRowRepository flexsurManualRowRepository;
     private final FlexsurServiceRepository flexsurServiceRepository;
     private final PlantRepository plantRepository;
+    private final ShiftRepository shiftRepository;
+    private final FlexsurWeekTotalsSnapshotRepository flexsurWeekTotalsSnapshotRepository;
+    private final CascadaRecipientRepository cascadaRecipientRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
@@ -56,6 +71,9 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             FlexsurManualRowRepository flexsurManualRowRepository,
             FlexsurServiceRepository flexsurServiceRepository,
             PlantRepository plantRepository,
+            ShiftRepository shiftRepository,
+            FlexsurWeekTotalsSnapshotRepository flexsurWeekTotalsSnapshotRepository,
+            CascadaRecipientRepository cascadaRecipientRepository,
             UserRepository userRepository,
             SimpMessagingTemplate messagingTemplate
     ) {
@@ -63,6 +81,9 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         this.flexsurManualRowRepository = flexsurManualRowRepository;
         this.flexsurServiceRepository = flexsurServiceRepository;
         this.plantRepository = plantRepository;
+        this.shiftRepository = shiftRepository;
+        this.flexsurWeekTotalsSnapshotRepository = flexsurWeekTotalsSnapshotRepository;
+        this.cascadaRecipientRepository = cascadaRecipientRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
     }
@@ -112,7 +133,7 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
     }
 
     @Override
-    public FlexsurWeekResponseDTO getFlexsurWeek(Long plantId, LocalDate weekDate) {
+    public FlexsurWeekResponseDTO getFlexsurWeek(Long plantId, LocalDate weekDate, Long shiftId) {
         if (plantId == null) {
             throw new RuntimeException("plantId is required");
         }
@@ -120,23 +141,23 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             throw new RuntimeException("weekDate is required");
         }
 
-        List<FlexsurWeek> weeks = flexsurWeekRepository.findByPlantPlantIdAndWeekDate(plantId, weekDate);
-        List<FlexsurManualRow> manualRows = flexsurManualRowRepository
-                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualFlexsurRowIdAsc(plantId, weekDate);
-        List<FlexsurService> services = flexsurServiceRepository
-                .findByPlantPlantIdAndActiveTrueOrderBySortOrderAscServiceNameAsc(plantId);
+        resolveShiftIfPresent(plantId, shiftId);
+
+        List<FlexsurWeek> weeks = findWeeks(plantId, weekDate, shiftId);
+        List<FlexsurManualRow> manualRows = findManualRows(plantId, weekDate, shiftId);
 
         List<FlexsurWeekRowDTO> savedRows = weeks.stream()
                 .map(this::toRowDTO)
                 .toList();
-        List<FlexsurWeekRowDTO> baseRows = new ArrayList<>(buildCatalogRows(services));
+        List<FlexsurWeekRowDTO> baseRows = new ArrayList<>(buildCatalogRows(plantId, shiftId));
         baseRows.addAll(buildManualRows(manualRows));
         List<FlexsurWeekRowDTO> rows = mergeRows(baseRows, savedRows);
         enrichRowTotals(rows);
 
         FlexsurWeekTotalsDTO totals = buildTotals(rows);
+        applyPersistedTotals(totals, findTotalsSnapshot(plantId, weekDate, shiftId).orElse(null));
         String status = resolveStatus(weeks);
-        return new FlexsurWeekResponseDTO(plantId, weekDate, status, rows, totals);
+        return new FlexsurWeekResponseDTO(plantId, weekDate, shiftId, status, rows, totals);
     }
 
     @Override
@@ -151,20 +172,20 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
 
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
-        List<FlexsurManualRow> manualRows = flexsurManualRowRepository
-                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualFlexsurRowIdAsc(
-                        request.getPlantId(),
-                        request.getWeekDate()
-                );
-
-        flexsurWeekRepository.deleteByPlantPlantIdAndWeekDate(
+        Shift shift = resolveShiftIfPresent(request.getPlantId(), request.getShiftId());
+        List<FlexsurManualRow> manualRows = findManualRows(
                 request.getPlantId(),
-                request.getWeekDate()
+                request.getWeekDate(),
+                request.getShiftId()
         );
 
+        deleteWeeks(request.getPlantId(), request.getWeekDate(), request.getShiftId());
+        deleteTotalsSnapshot(request.getPlantId(), request.getWeekDate(), request.getShiftId());
+
         List<FlexsurWeekRowDTO> rows = request.getRows() == null ? List.of() : request.getRows();
+        List<FlexsurWeek> persistedWeeks = new ArrayList<>();
         for (FlexsurWeekRowDTO row : rows) {
-            FlexsurManualRow manualRow = resolveManualRow(row, manualRows);
+            FlexsurManualRow manualRow = resolveManualRow(row, manualRows, request.getShiftId());
             if (isManualRow(row) && manualRow == null) {
                 throw new RuntimeException("Manual row not found: " + row.getManualFlexsurRowId());
             }
@@ -176,6 +197,7 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             FlexsurWeek week = new FlexsurWeek();
             week.setPlant(plant);
             week.setWeekDate(request.getWeekDate());
+            week.setShift(shift);
             week.setManualRow(manualRow);
             week.setServiceName(serviceName);
             week.setStatus(CascadaStatus.DRAFT);
@@ -195,14 +217,17 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                 detail.setServiceDate(detailDTO.getServiceDate());
                 int trips = detailDTO.getTrips() == null ? 0 : detailDTO.getTrips();
                 int extraColumn = detailDTO.getExtraColumn() == null ? 0 : detailDTO.getExtraColumn();
+                int total = detailDTO.getTotal() == null ? trips + extraColumn : detailDTO.getTotal();
                 detail.setTrips(trips);
                 detail.setExtraColumn(extraColumn);
-                detail.setTotal(trips + extraColumn);
+                detail.setTotal(total);
                 detailEntities.add(detail);
             }
             week.setDetails(detailEntities);
-            flexsurWeekRepository.save(week);
+            persistedWeeks.add(flexsurWeekRepository.save(week));
         }
+
+        saveTotalsSnapshot(plant, shift, request.getWeekDate(), persistedWeeks, userId);
     }
 
     @Override
@@ -221,11 +246,12 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
 
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
-        List<FlexsurManualRow> existing = flexsurManualRowRepository
-                .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualFlexsurRowIdAsc(
-                        request.getPlantId(),
-                        request.getWeekDate()
-                );
+        Shift shift = resolveShiftIfPresent(request.getPlantId(), request.getShiftId());
+        List<FlexsurManualRow> existing = findManualRows(
+                request.getPlantId(),
+                request.getWeekDate(),
+                request.getShiftId()
+        );
 
         int nextSortOrder = existing.stream()
                 .map(FlexsurManualRow::getSortOrder)
@@ -237,6 +263,7 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         FlexsurManualRow manualRow = new FlexsurManualRow();
         manualRow.setPlant(plant);
         manualRow.setWeekDate(request.getWeekDate());
+        manualRow.setShift(shift);
         manualRow.setServiceName(serviceName);
         manualRow.setSortOrder(request.getSortOrder() == null ? nextSortOrder : request.getSortOrder());
         manualRow.setUpdatedAt(LocalDateTime.now());
@@ -289,7 +316,20 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
 
     @Override
     @Transactional
-    public void updateFlexsurStatus(Long plantId, LocalDate weekDate, String status, Long userId) {
+    public void updateFlexsurStatus(Long plantId, LocalDate weekDate, Long shiftId, String status, Long userId) {
+        updateFlexsurStatus(plantId, weekDate, shiftId, status, userId, null);
+    }
+
+    @Override
+    @Transactional
+    public void updateFlexsurStatus(
+            Long plantId,
+            LocalDate weekDate,
+            Long shiftId,
+            String status,
+            Long userId,
+            List<Long> recipientUserIds
+    ) {
         if (plantId == null) {
             throw new RuntimeException("plantId is required");
         }
@@ -307,12 +347,16 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             throw new RuntimeException("Invalid status: " + status);
         }
 
-        List<FlexsurWeek> weeks = flexsurWeekRepository.findByPlantPlantIdAndWeekDate(plantId, weekDate);
+        resolveShiftIfPresent(plantId, shiftId);
+        List<FlexsurWeek> weeks = findWeeks(plantId, weekDate, shiftId);
         if (weeks.isEmpty()) {
             return;
         }
 
         LocalDateTime now = LocalDateTime.now();
+        if (targetStatus == CascadaStatus.SENT && (recipientUserIds == null || recipientUserIds.stream().filter(java.util.Objects::nonNull).toList().isEmpty())) {
+            throw new RuntimeException("recipientUserIds is required");
+        }
         for (FlexsurWeek week : weeks) {
             if (targetStatus == CascadaStatus.SENT) {
                 if (week.getSentAt() == null) {
@@ -328,18 +372,55 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         }
         flexsurWeekRepository.saveAll(weeks);
 
-        if (targetStatus == CascadaStatus.SENT || targetStatus == CascadaStatus.DELETED) {
-            publishFlexsurInboxMessagesForStatus(
+        LocalDate effectiveWeekStartDate = resolveWeekStartDate(weeks.get(0));
+        String recipientShiftKey = recipientShiftKey(shiftId);
+        if (targetStatus == CascadaStatus.SENT) {
+            Plant plant = plantRepository.findById(plantId)
+                    .orElseThrow(() -> new RuntimeException("Plant not found"));
+            cascadaRecipientRepository.deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndCascadaType(
+                    plantId,
+                    effectiveWeekStartDate,
+                    recipientShiftKey,
+                    CascadaType.FLEXSUR
+            );
+            List<CascadaRecipient> recipients = new ArrayList<>();
+            for (Long recipientUserId : recipientUserIds) {
+                if (recipientUserId == null) {
+                    continue;
+                }
+                CascadaRecipient recipient = new CascadaRecipient();
+                recipient.setPlant(plant);
+                recipient.setWeekStartDate(effectiveWeekStartDate);
+                recipient.setShiftId(recipientShiftKey);
+                recipient.setDayKey(null);
+                recipient.setCascadaType(CascadaType.FLEXSUR);
+                recipient.setRecipientUserId(recipientUserId);
+                recipient.setSentAt(now);
+                recipient.setSentByUserId(userId);
+                recipients.add(recipient);
+            }
+            cascadaRecipientRepository.saveAll(recipients);
+            publishFlexsurInboxMessagesAfterCommit(
                     targetStatus.name(),
                     plantId,
-                    weekDate,
-                    userId
+                    effectiveWeekStartDate,
+                    recipientUserIds
+            );
+            return;
+        }
+
+        if (targetStatus == CascadaStatus.DELETED) {
+            publishFlexsurInboxMessagesAfterCommit(
+                    targetStatus.name(),
+                    plantId,
+                    effectiveWeekStartDate,
+                    recipientUserIdsForFlexsur(plantId, effectiveWeekStartDate, shiftId)
             );
         }
     }
 
     @Override
-    public List<CascadaSummaryDTO> getFlexsurSummaries(String status, Long plantId, LocalDate weekDate) {
+    public List<CascadaSummaryDTO> getFlexsurSummaries(String status, Long plantId, LocalDate weekDate, Long recipientUserId) {
         String effectiveStatus = (status == null || status.isBlank()) ? CascadaStatus.SENT.name() : status;
         CascadaStatus cascadaStatus;
         try {
@@ -361,6 +442,20 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                     .toList();
         }
 
+        if (recipientUserId != null) {
+            List<CascadaRecipient> recipients = cascadaRecipientRepository
+                    .findByRecipientUserIdAndCascadaType(recipientUserId, CascadaType.FLEXSUR);
+            java.util.Set<String> allowedKeys = recipients.stream()
+                    .map(r -> r.getPlant().getPlantId() + "|" + r.getWeekStartDate() + "|" + r.getShiftId())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            weeks = weeks.stream()
+                    .filter(week -> allowedKeys.contains(
+                            week.getPlant().getPlantId() + "|" + resolveWeekStartDate(week) + "|" + recipientShiftKey(week.getShift() == null ? null : week.getShift().getShiftId())
+                    ))
+                    .toList();
+        }
+
         java.util.Map<String, List<FlexsurWeek>> grouped = weeks.stream()
                 .collect(java.util.stream.Collectors.groupingBy(week ->
                         week.getPlant().getPlantId() + "|" + resolveWeekStartDate(week)
@@ -375,7 +470,11 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                     .orElse(groupWeeks.get(0));
 
             LocalDate effectiveWeekStartDate = resolveWeekStartDate(latest);
-            java.util.Set<String> shiftIds = java.util.Set.of();
+            java.util.Set<String> shiftIds = groupWeeks.stream()
+                    .map(week -> week.getShift() == null ? null : week.getShift().getShiftId().toString())
+                    .filter(java.util.Objects::nonNull)
+                    .sorted(this::compareShiftIds)
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
             java.util.Set<String> dayKeys = groupWeeks.stream()
                     .flatMap(week -> week.getDetails().stream().map(detail -> mapDayKey(detail.getServiceDate())))
                     .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
@@ -450,8 +549,11 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                 .toList();
     }
 
-    private List<FlexsurWeekRowDTO> buildCatalogRows(List<FlexsurService> services) {
-        if (services == null || services.isEmpty()) {
+    private List<FlexsurWeekRowDTO> buildCatalogRows(Long plantId, Long shiftId) {
+        List<FlexsurService> services = shiftId == null
+                ? flexsurServiceRepository.findByPlantPlantIdAndActiveTrueOrderBySortOrderAscServiceNameAsc(plantId)
+                : flexsurServiceRepository.findByPlantPlantIdAndShiftShiftIdAndActiveTrueOrderBySortOrderAscServiceNameAsc(plantId, shiftId);
+        if (services.isEmpty()) {
             return List.of();
         }
         return services.stream()
@@ -524,12 +626,14 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             String serviceName = row.getServiceName();
             List<FlexsurDetailDTO> details = row.getDetails() == null ? List.of() : row.getDetails();
             for (FlexsurDetailDTO detail : details) {
-                String dayKey = mapDayKey(detail.getServiceDate());
+                String dayKey = detail.getServiceDate() == null ? null : detail.getServiceDate().toString();
                 int trips = detail.getTrips() == null ? 0 : detail.getTrips();
                 int extra = detail.getExtraColumn() == null ? 0 : detail.getExtraColumn();
-                int total = trips + extra;
+                int total = detail.getTotal() == null ? trips + extra : detail.getTotal();
 
-                addStringCount(byDay, dayKey, total);
+                if (dayKey != null) {
+                    addStringCount(byDay, dayKey, total);
+                }
                 addStringCount(byService, serviceName, total);
                 addStringCount(byColumn, "trips", trips);
                 addStringCount(byColumn, "extraColumn", extra);
@@ -539,6 +643,66 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         }
 
         return new FlexsurWeekTotalsDTO(byDay, byService, byColumn, weekTotal);
+    }
+
+    private Optional<FlexsurWeekTotalsSnapshot> findTotalsSnapshot(Long plantId, LocalDate weekDate, Long shiftId) {
+        return shiftId == null
+                ? flexsurWeekTotalsSnapshotRepository.findByPlantPlantIdAndWeekDateAndShiftIsNull(plantId, weekDate)
+                : flexsurWeekTotalsSnapshotRepository.findByPlantPlantIdAndWeekDateAndShiftShiftId(plantId, weekDate, shiftId);
+    }
+
+    private void deleteTotalsSnapshot(Long plantId, LocalDate weekDate, Long shiftId) {
+        findTotalsSnapshot(plantId, weekDate, shiftId)
+                .ifPresent(flexsurWeekTotalsSnapshotRepository::delete);
+    }
+
+    private void saveTotalsSnapshot(
+            Plant plant,
+            Shift shift,
+            LocalDate weekDate,
+            List<FlexsurWeek> persistedWeeks,
+            Long userId
+    ) {
+        FlexsurWeekTotalsSnapshot snapshot = new FlexsurWeekTotalsSnapshot();
+        snapshot.setPlant(plant);
+        snapshot.setWeekDate(weekDate);
+        snapshot.setShift(shift);
+        snapshot.setByDay(buildPersistedByDayTotals(persistedWeeks));
+        snapshot.setWeekTotal(snapshot.getByDay().values().stream().mapToInt(Integer::intValue).sum());
+        snapshot.setUpdatedAt(LocalDateTime.now());
+        snapshot.setUpdatedByUserId(userId);
+        flexsurWeekTotalsSnapshotRepository.save(snapshot);
+    }
+
+    private Map<LocalDate, Integer> buildPersistedByDayTotals(List<FlexsurWeek> persistedWeeks) {
+        Map<LocalDate, Integer> byDay = new LinkedHashMap<>();
+        if (persistedWeeks == null || persistedWeeks.isEmpty()) {
+            return byDay;
+        }
+        for (FlexsurWeek week : persistedWeeks) {
+            List<FlexsurDetail> details = week.getDetails() == null ? List.of() : week.getDetails();
+            for (FlexsurDetail detail : details) {
+                if (detail.getServiceDate() == null) {
+                    continue;
+                }
+                int total = detail.getTotal() == null ? 0 : detail.getTotal();
+                byDay.merge(detail.getServiceDate(), total, Integer::sum);
+            }
+        }
+        return byDay;
+    }
+
+    private void applyPersistedTotals(FlexsurWeekTotalsDTO totals, FlexsurWeekTotalsSnapshot snapshot) {
+        if (totals == null || snapshot == null) {
+            return;
+        }
+        Map<String, Integer> byDay = new LinkedHashMap<>();
+        Map<LocalDate, Integer> persistedByDay = snapshot.getByDay() == null ? Map.of() : snapshot.getByDay();
+        persistedByDay.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> byDay.put(entry.getKey().toString(), entry.getValue()));
+        totals.setByDay(byDay);
+        totals.setWeekTotal(snapshot.getWeekTotal() == null ? 0 : snapshot.getWeekTotal());
     }
 
     private void enrichRowTotals(List<FlexsurWeekRowDTO> rows) {
@@ -564,7 +728,7 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         return status == null ? null : status.name();
     }
 
-    private FlexsurManualRow resolveManualRow(FlexsurWeekRowDTO row, List<FlexsurManualRow> manualRows) {
+    private FlexsurManualRow resolveManualRow(FlexsurWeekRowDTO row, List<FlexsurManualRow> manualRows, Long shiftId) {
         if (row == null || row.getManualFlexsurRowId() == null) {
             return null;
         }
@@ -577,7 +741,15 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                 return persisted;
             }
         }
-        return flexsurManualRowRepository.findById(row.getManualFlexsurRowId()).orElse(null);
+        FlexsurManualRow persisted = flexsurManualRowRepository.findById(row.getManualFlexsurRowId()).orElse(null);
+        if (persisted == null) {
+            return null;
+        }
+        Long persistedShiftId = persisted.getShift() == null ? null : persisted.getShift().getShiftId();
+        if (!java.util.Objects.equals(persistedShiftId, shiftId)) {
+            return null;
+        }
+        return persisted;
     }
 
     private boolean isManualRow(FlexsurWeekRowDTO row) {
@@ -587,6 +759,7 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
     private FlexsurManualRowDTO toManualRowDTO(FlexsurManualRow row) {
         return new FlexsurManualRowDTO(
                 row.getManualFlexsurRowId(),
+                row.getShift() == null ? null : row.getShift().getShiftId(),
                 row.getServiceName(),
                 row.getSortOrder()
         );
@@ -657,46 +830,82 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             String status,
             Long plantId,
             LocalDate weekDate,
-            Long userId
+            List<Long> recipientUserIds
     ) {
-        if (userId == null) {
+        if (recipientUserIds == null || recipientUserIds.isEmpty()) {
             return;
         }
+        for (Long recipientUserId : recipientUserIds) {
+            if (recipientUserId == null) {
+                continue;
+            }
+            List<CascadaSummaryDTO> summaries = getFlexsurSummaries(status, plantId, weekDate, recipientUserId);
+            if (summaries.isEmpty()) {
+                continue;
+            }
 
-        List<CascadaSummaryDTO> summaries = getFlexsurSummaries(status, plantId, weekDate);
-        if (summaries.isEmpty()) {
+            CascadaSummaryDTO summary = summaries.get(0);
+            String weekStart = summary.getWeekDate().toString();
+            String sentAtValue = summary.getSentAt() == null ? null : summary.getSentAt().toString();
+
+            String title = summary.getPlantName();
+            String subtitle = "Semana " + weekStart;
+            String fileName = "Cascada_" + summary.getPlantName() + "_" + weekStart + ".xlsx";
+            String sheetTitle = summary.getPlantName();
+
+            InboxMessageDTO payload = new InboxMessageDTO(
+                    summary.getId(),
+                    summary.getCascadaId(),
+                    title,
+                    subtitle,
+                    sentAtValue,
+                    sentAtValue,
+                    fileName,
+                    sheetTitle,
+                    summary.getCompanyName(),
+                    summary.getSentBy(),
+                    summary.getPlantId(),
+                    weekStart,
+                    weekStart,
+                    summary.getShiftIds().stream().toList(),
+                    summary.getDayKeys().stream().toList(),
+                    status
+            );
+
+            messagingTemplate.convertAndSend("/topic/inbox/" + recipientUserId, payload);
+        }
+    }
+
+    private void publishFlexsurInboxMessagesAfterCommit(
+            String status,
+            Long plantId,
+            LocalDate weekDate,
+            List<Long> recipientUserIds
+    ) {
+        Runnable publisher = () -> publishFlexsurInboxMessagesForStatus(status, plantId, weekDate, recipientUserIds);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
             return;
         }
+        publisher.run();
+    }
 
-        CascadaSummaryDTO summary = summaries.get(0);
-        String weekStart = summary.getWeekDate().toString();
-        String sentAtValue = summary.getSentAt() == null ? null : summary.getSentAt().toString();
-
-        String title = summary.getPlantName();
-        String subtitle = "Semana " + weekStart;
-        String fileName = "Cascada_" + summary.getPlantName() + "_" + weekStart + ".xlsx";
-        String sheetTitle = summary.getPlantName();
-
-        InboxMessageDTO payload = new InboxMessageDTO(
-                summary.getId(),
-                summary.getCascadaId(),
-                title,
-                subtitle,
-                sentAtValue,
-                sentAtValue,
-                fileName,
-                sheetTitle,
-                summary.getCompanyName(),
-                summary.getSentBy(),
-                summary.getPlantId(),
-                weekStart,
-                weekStart,
-                summary.getShiftIds().stream().toList(),
-                summary.getDayKeys().stream().toList(),
-                status
+    private List<Long> recipientUserIdsForFlexsur(Long plantId, LocalDate weekStartDate, Long shiftId) {
+        return cascadaRecipientRepository.findRecipientUserIdsByShift(
+                plantId,
+                weekStartDate,
+                recipientShiftKey(shiftId),
+                CascadaType.FLEXSUR
         );
+    }
 
-        messagingTemplate.convertAndSend("/topic/inbox/" + userId, payload);
+    private String recipientShiftKey(Long shiftId) {
+        return shiftId == null ? FLEXSUR_ALL_SHIFTS_RECIPIENT_KEY : shiftId.toString();
     }
 
     private String stableCascadaId(Long plantId, LocalDate weekStartDate) {
@@ -715,11 +924,58 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
         return WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekNumber();
     }
 
+    private List<FlexsurWeek> findWeeks(Long plantId, LocalDate weekDate, Long shiftId) {
+        return shiftId == null
+                ? flexsurWeekRepository.findByPlantPlantIdAndWeekDate(plantId, weekDate)
+                : flexsurWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftId(plantId, weekDate, shiftId);
+    }
+
+    private void deleteWeeks(Long plantId, LocalDate weekDate, Long shiftId) {
+        if (shiftId == null) {
+            flexsurWeekRepository.deleteByPlantPlantIdAndWeekDate(plantId, weekDate);
+            return;
+        }
+        flexsurWeekRepository.deleteByPlantPlantIdAndWeekDateAndShiftShiftId(plantId, weekDate, shiftId);
+    }
+
+    private List<FlexsurManualRow> findManualRows(Long plantId, LocalDate weekDate, Long shiftId) {
+        return shiftId == null
+                ? flexsurManualRowRepository.findByPlantPlantIdAndWeekDateAndShiftIsNullOrderBySortOrderAscManualFlexsurRowIdAsc(
+                        plantId,
+                        weekDate
+                )
+                : flexsurManualRowRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdOrderBySortOrderAscManualFlexsurRowIdAsc(
+                        plantId,
+                        weekDate,
+                        shiftId
+                );
+    }
+
+    private Shift resolveShiftIfPresent(Long plantId, Long shiftId) {
+        if (shiftId == null) {
+            return null;
+        }
+        Shift shift = shiftRepository.findById(shiftId)
+                .orElseThrow(() -> new RuntimeException("Shift not found"));
+        if (shift.getPlant() == null || !plantId.equals(shift.getPlant().getPlantId())) {
+            throw new RuntimeException("shiftId does not belong to plant");
+        }
+        return shift;
+    }
+
     private java.util.Set<String> orderDayKeys(java.util.Set<String> dayKeys) {
         return dayKeys.stream()
                 .filter(java.util.Objects::nonNull)
                 .sorted(java.util.Comparator.comparingInt(this::dayOrder))
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+    }
+
+    private int compareShiftIds(String left, String right) {
+        try {
+            return Long.compare(Long.parseLong(left), Long.parseLong(right));
+        } catch (NumberFormatException ex) {
+            return left.compareTo(right);
+        }
     }
 
     private int dayOrder(String dayKey) {

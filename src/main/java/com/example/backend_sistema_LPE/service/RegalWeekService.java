@@ -23,10 +23,19 @@ public interface RegalWeekService {
     void deleteManualRow(Long manualRegalRowId);
 
     void updateRegalStatus(Long plantId, LocalDate weekDate, String status, Long userId);
+    
+    void updateRegalStatus(
+            Long plantId,
+            LocalDate weekDate,
+            String status,
+            Long userId,
+            java.util.List<Long> recipientUserIds
+    );
 
     java.util.List<com.example.backend_sistema_LPE.dto.CascadaSummaryDTO> getRegalSummaries(
             String status,
             Long plantId,
-            LocalDate weekDate
+            LocalDate weekDate,
+            Long recipientUserId
     );
 }

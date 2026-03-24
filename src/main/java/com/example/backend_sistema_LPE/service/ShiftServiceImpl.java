@@ -3,6 +3,7 @@ package com.example.backend_sistema_LPE.service;
 import com.example.backend_sistema_LPE.dto.CreateShiftRequestDTO;
 import com.example.backend_sistema_LPE.dto.ShiftDTO;
 import com.example.backend_sistema_LPE.dto.UpdateShiftRequestDTO;
+import com.example.backend_sistema_LPE.enums.ShiftType;
 import com.example.backend_sistema_LPE.model.FormatTurnConfig;
 import com.example.backend_sistema_LPE.model.FormatType;
 import com.example.backend_sistema_LPE.model.Shift;
@@ -66,19 +67,44 @@ public class ShiftServiceImpl implements ShiftService {
             Set<String> oldDayKeys = existingShift.getDayKeys() == null
                     ? Set.of()
                     : new HashSet<>(existingShift.getDayKeys());
+            ShiftType oldShiftType = effectiveShiftType(existingShift);
+            Set<String> oldLongWeekDayKeys = existingShift.getLongWeekDayKeys() == null
+                    ? Set.of()
+                    : new HashSet<>(existingShift.getLongWeekDayKeys());
+            Set<String> oldShortWeekDayKeys = existingShift.getShortWeekDayKeys() == null
+                    ? Set.of()
+                    : new HashSet<>(existingShift.getShortWeekDayKeys());
+            ShiftType requestedShiftType = request.getShiftType() == null
+                    ? effectiveShiftType(existingShift)
+                    : request.getShiftType();
+            Set<String> requestedDayKeys = request.getDayKeys() == null
+                    ? oldDayKeys
+                    : request.getDayKeys();
+            Set<String> requestedLongWeekDayKeys = request.getLongWeekDayKeys() == null
+                    ? oldLongWeekDayKeys
+                    : request.getLongWeekDayKeys();
+            Set<String> requestedShortWeekDayKeys = request.getShortWeekDayKeys() == null
+                    ? oldShortWeekDayKeys
+                    : request.getShortWeekDayKeys();
 
             existingShift.setShiftName(request.getShiftName().trim());
             existingShift.setStartTime(request.getStartTime());
             existingShift.setEndTime(request.getEndTime());
-            existingShift.setDayKeys(request.getDayKeys());
+            applyShiftSchedule(existingShift, resolveShiftType(requestedShiftType), requestedDayKeys, requestedLongWeekDayKeys, requestedShortWeekDayKeys);
 
             Shift savedExisting = shiftRepository.save(existingShift);
             syncTurnConfigForUpdate(
                     plant,
                     oldShiftName,
                     oldDayKeys,
+                    oldShiftType,
+                    oldLongWeekDayKeys,
+                    oldShortWeekDayKeys,
                     savedExisting.getShiftName(),
-                    savedExisting.getDayKeys()
+                    savedExisting.getDayKeys(),
+                    effectiveShiftType(savedExisting),
+                    savedExisting.getLongWeekDayKeys(),
+                    savedExisting.getShortWeekDayKeys()
             );
             syncShiftMappingsForShift(plant, savedExisting);
             return toDTO(savedExisting);
@@ -89,10 +115,10 @@ public class ShiftServiceImpl implements ShiftService {
         shift.setShiftName(request.getShiftName().trim());
         shift.setStartTime(request.getStartTime());
         shift.setEndTime(request.getEndTime());
-        shift.setDayKeys(request.getDayKeys());
+        applyShiftSchedule(shift, resolveShiftType(request.getShiftType()), request.getDayKeys(), request.getLongWeekDayKeys(), request.getShortWeekDayKeys());
 
         Shift saved = shiftRepository.save(shift);
-        syncTurnConfigForShift(plant, saved.getShiftName(), saved.getDayKeys());
+        syncTurnConfigForShift(plant, saved.getShiftName(), effectiveDayKeys(saved));
         syncShiftMappingsForShift(plant, saved);
         return toDTO(saved);
     }
@@ -107,6 +133,13 @@ public class ShiftServiceImpl implements ShiftService {
         java.util.Set<String> oldDayKeys = shift.getDayKeys() == null
                 ? java.util.Set.of()
                 : new java.util.HashSet<>(shift.getDayKeys());
+        ShiftType oldShiftType = effectiveShiftType(shift);
+        java.util.Set<String> oldLongWeekDayKeys = shift.getLongWeekDayKeys() == null
+                ? java.util.Set.of()
+                : new java.util.HashSet<>(shift.getLongWeekDayKeys());
+        java.util.Set<String> oldShortWeekDayKeys = shift.getShortWeekDayKeys() == null
+                ? java.util.Set.of()
+                : new java.util.HashSet<>(shift.getShortWeekDayKeys());
 
         boolean hasUpdates = false;
 
@@ -126,13 +159,40 @@ public class ShiftServiceImpl implements ShiftService {
             shift.setDayKeys(request.getDayKeys());
             hasUpdates = true;
         }
+        if (request.getShiftType() != null) {
+            shift.setShiftType(request.getShiftType());
+            hasUpdates = true;
+        }
+        if (request.getLongWeekDayKeys() != null) {
+            shift.setLongWeekDayKeys(request.getLongWeekDayKeys());
+            hasUpdates = true;
+        }
+        if (request.getShortWeekDayKeys() != null) {
+            shift.setShortWeekDayKeys(request.getShortWeekDayKeys());
+            hasUpdates = true;
+        }
 
         if (!hasUpdates) {
             return toDTO(shift);
         }
 
+        validateShiftSchedule(shift.getShiftName(), effectiveShiftType(shift), shift.getDayKeys(), shift.getLongWeekDayKeys(), shift.getShortWeekDayKeys());
+        normalizeShiftSchedule(shift, effectiveShiftType(shift));
+
         Shift saved = shiftRepository.save(shift);
-        syncTurnConfigForUpdate(saved.getPlant(), oldShiftName, oldDayKeys, saved.getShiftName(), saved.getDayKeys());
+        syncTurnConfigForUpdate(
+                saved.getPlant(),
+                oldShiftName,
+                oldDayKeys,
+                oldShiftType,
+                oldLongWeekDayKeys,
+                oldShortWeekDayKeys,
+                saved.getShiftName(),
+                saved.getDayKeys(),
+                effectiveShiftType(saved),
+                saved.getLongWeekDayKeys(),
+                saved.getShortWeekDayKeys()
+        );
         syncShiftMappingsForShift(saved.getPlant(), saved);
         return toDTO(saved);
     }
@@ -143,7 +203,7 @@ public class ShiftServiceImpl implements ShiftService {
         Shift shift = shiftRepository.findByShiftIdAndPlantPlantId(shiftId, plantId)
                 .orElseThrow(() -> new RuntimeException("Shift not found " + shiftId));
         deleteShiftMappings(shift.getPlant(), shift.getShiftId());
-        deleteTurnConfigForShift(shift.getPlant(), shift.getShiftName(), shift.getDayKeys());
+        deleteTurnConfigForShift(shift.getPlant(), shift.getShiftName(), effectiveDayKeys(shift));
         shiftRepository.delete(shift);
     }
 
@@ -152,19 +212,22 @@ public class ShiftServiceImpl implements ShiftService {
         dto.setShiftId(shift.getShiftId());
         dto.setShiftName(shift.getShiftName());
         dto.setDayKeys(shift.getDayKeys());
+        dto.setShiftType(effectiveShiftType(shift));
+        dto.setLongWeekDayKeys(shift.getLongWeekDayKeys());
+        dto.setShortWeekDayKeys(shift.getShortWeekDayKeys());
         dto.setStartTime(shift.getStartTime());
         dto.setEndTime(shift.getEndTime());
         return dto;
     }
 
     private void validateRequest(CreateShiftRequestDTO request) {
-        if (request.getShiftName() == null || request.getShiftName().trim().isBlank()) {
-            throw new RuntimeException("shiftName is required");
-        }
-        if (request.getDayKeys() == null || request.getDayKeys().isEmpty()) {
-            throw new RuntimeException("dayKeys is required");
-        }
-        // startTime/endTime are optional for admin trips
+        validateShiftSchedule(
+                request.getShiftName(),
+                resolveShiftType(request.getShiftType()),
+                request.getDayKeys(),
+                request.getLongWeekDayKeys(),
+                request.getShortWeekDayKeys()
+        );
     }
 
     private void validateRequest(UpdateShiftRequestDTO request) {
@@ -174,13 +237,19 @@ public class ShiftServiceImpl implements ShiftService {
             Plant plant,
             String oldShiftName,
             java.util.Set<String> oldDayKeys,
+            ShiftType oldShiftType,
+            java.util.Set<String> oldLongWeekDayKeys,
+            java.util.Set<String> oldShortWeekDayKeys,
             String newShiftName,
-            java.util.Set<String> newDayKeys
+            java.util.Set<String> newDayKeys,
+            ShiftType newShiftType,
+            java.util.Set<String> newLongWeekDayKeys,
+            java.util.Set<String> newShortWeekDayKeys
     ) {
         String normalizedOldName = normalizeTurnName(oldShiftName);
         String normalizedNewName = normalizeTurnName(newShiftName);
-        java.util.Set<String> oldDays = normalizeDayKeys(oldDayKeys);
-        java.util.Set<String> newDays = normalizeDayKeys(newDayKeys);
+        java.util.Set<String> oldDays = effectiveDayKeys(oldShiftType, oldDayKeys, oldLongWeekDayKeys, oldShortWeekDayKeys);
+        java.util.Set<String> newDays = effectiveDayKeys(newShiftType, newDayKeys, newLongWeekDayKeys, newShortWeekDayKeys);
 
         if (!normalizedOldName.equals(normalizedNewName)) {
             deleteTurnConfigForShift(plant, normalizedOldName, oldDays);
@@ -235,7 +304,7 @@ public class ShiftServiceImpl implements ShiftService {
         }
 
         String normalizedName = normalizeTurnName(shift.getShiftName());
-        Set<String> normalizedDays = normalizeDayKeys(shift.getDayKeys());
+        Set<String> normalizedDays = effectiveDayKeys(shift);
         List<ShiftFormatTurnMap> existingMappings = shiftFormatTurnMapRepository
                 .findByPlantPlantIdAndFormatTypeFormatTypeIdAndShiftShiftId(
                         plant.getPlantId(),
@@ -335,6 +404,88 @@ public class ShiftServiceImpl implements ShiftService {
             normalized.add(dayKey.trim().toLowerCase());
         }
         return normalized;
+    }
+
+    private ShiftType resolveShiftType(ShiftType shiftType) {
+        return shiftType == null ? ShiftType.REGULAR : shiftType;
+    }
+
+    private ShiftType effectiveShiftType(Shift shift) {
+        return shift == null || shift.getShiftType() == null ? ShiftType.REGULAR : shift.getShiftType();
+    }
+
+    private java.util.Set<String> effectiveDayKeys(Shift shift) {
+        if (shift == null) {
+            return java.util.Set.of();
+        }
+        return effectiveDayKeys(
+                effectiveShiftType(shift),
+                shift.getDayKeys(),
+                shift.getLongWeekDayKeys(),
+                shift.getShortWeekDayKeys()
+        );
+    }
+
+    private java.util.Set<String> effectiveDayKeys(
+            ShiftType shiftType,
+            java.util.Set<String> dayKeys,
+            java.util.Set<String> longWeekDayKeys,
+            java.util.Set<String> shortWeekDayKeys
+    ) {
+        if (shiftType == ShiftType.SPECIAL) {
+            java.util.Set<String> union = new java.util.HashSet<>(normalizeDayKeys(longWeekDayKeys));
+            union.addAll(normalizeDayKeys(shortWeekDayKeys));
+            return union;
+        }
+        return normalizeDayKeys(dayKeys);
+    }
+
+    private void applyShiftSchedule(
+            Shift shift,
+            ShiftType shiftType,
+            java.util.Set<String> dayKeys,
+            java.util.Set<String> longWeekDayKeys,
+            java.util.Set<String> shortWeekDayKeys
+    ) {
+        validateShiftSchedule(shift.getShiftName(), shiftType, dayKeys, longWeekDayKeys, shortWeekDayKeys);
+        shift.setShiftType(shiftType);
+        shift.setDayKeys(normalizeDayKeys(dayKeys));
+        shift.setLongWeekDayKeys(normalizeDayKeys(longWeekDayKeys));
+        shift.setShortWeekDayKeys(normalizeDayKeys(shortWeekDayKeys));
+        normalizeShiftSchedule(shift, shiftType);
+    }
+
+    private void normalizeShiftSchedule(Shift shift, ShiftType shiftType) {
+        if (shiftType == ShiftType.SPECIAL) {
+            shift.setDayKeys(new java.util.HashSet<>());
+            return;
+        }
+        shift.setLongWeekDayKeys(new java.util.HashSet<>());
+        shift.setShortWeekDayKeys(new java.util.HashSet<>());
+    }
+
+    private void validateShiftSchedule(
+            String shiftName,
+            ShiftType shiftType,
+            java.util.Set<String> dayKeys,
+            java.util.Set<String> longWeekDayKeys,
+            java.util.Set<String> shortWeekDayKeys
+    ) {
+        if (shiftName == null || shiftName.trim().isBlank()) {
+            throw new RuntimeException("shiftName is required");
+        }
+        if (shiftType == ShiftType.SPECIAL) {
+            if (longWeekDayKeys == null || longWeekDayKeys.isEmpty()) {
+                throw new RuntimeException("longWeekDayKeys is required for SPECIAL shift");
+            }
+            if (shortWeekDayKeys == null || shortWeekDayKeys.isEmpty()) {
+                throw new RuntimeException("shortWeekDayKeys is required for SPECIAL shift");
+            }
+            return;
+        }
+        if (dayKeys == null || dayKeys.isEmpty()) {
+            throw new RuntimeException("dayKeys is required");
+        }
     }
 
     private String normalizeTurnName(String shiftName) {

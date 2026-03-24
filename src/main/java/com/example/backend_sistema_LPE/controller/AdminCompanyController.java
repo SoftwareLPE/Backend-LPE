@@ -19,31 +19,27 @@ public class AdminCompanyController {
         this.companyAdminService = companyAdminService;
     }
 
-    //Lista de todas las compañias
+
     @GetMapping
     public List<CompanyListDTO> getAllCompanies(){
         return companyAdminService.getAllCompanies();
     }
 
-    //Cuando se abre el modal para editar compañias se ejecuta este endpoint
     @GetMapping("/{companyId:\\d+}")
     public ResponseEntity<CompanyDetailDTO> getCompanyDetail(@PathVariable Long companyId) {
         return ResponseEntity.ok(companyAdminService.getCompanyDetail(companyId));
     }
 
-    //Endpoint que muestra las compañias con el numero de plantas en formato tabla en el frontend
     @GetMapping("/table")
     public ResponseEntity<List<CompanyTableDTO>> getCompaniesTable() {
         return ResponseEntity.ok(companyAdminService.getCompaniesForTable());
     }
 
-    //Endpoint que muestra todas las companias con sus plantas (para admin)
     @GetMapping("/with-plants")
     public ResponseEntity<List<CompanyDetailDTO>> getCompaniesWithPlants() {
         return ResponseEntity.ok(companyAdminService.getAllCompaniesWithPlants());
     }
 
-    //Endpoint el cual crea una compañia con sus respectivas plantas
     @PostMapping
     // @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<Company> createCompany(@RequestBody CreateCompanyRequestDTO createCompanyRequestDTO){
@@ -51,7 +47,6 @@ public class AdminCompanyController {
         return ResponseEntity.status(HttpStatus.CREATED).body(company);
     }
 
-    //Endpoint para actualizar el nombre de las compañias
     @PatchMapping("{companyId:\\d+}")
     public ResponseEntity<UpdateCompanyNameDTO> updateCompanyName(
             @PathVariable Long companyId,
@@ -59,9 +54,7 @@ public class AdminCompanyController {
         return ResponseEntity.ok(companyAdminService.updateCompanyName(companyId,updateCompanyNameDTO));
     }
 
-    //Endpoint para agregar plantas a una compañia existente
     @PostMapping("/{companyId:\\d+}/plants")
-    //@PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<PlantDTO> addPlantToCompany(
            @PathVariable Long companyId,
            @RequestBody CreateRequestPlantDTO createRequestPlantDTO){
@@ -74,7 +67,6 @@ public class AdminCompanyController {
 
     }
 
-    //Endpoint para eliminar companias
     @DeleteMapping("/{companyId:\\d+}")
     public ResponseEntity<Void> deleteCompany(@PathVariable Long companyId) {
         companyAdminService.deleteCompany(companyId);

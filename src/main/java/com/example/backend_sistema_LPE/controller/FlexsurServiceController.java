@@ -21,9 +21,10 @@ public class FlexsurServiceController {
     @GetMapping
     public ResponseEntity<List<FlexsurServiceDTO>> getServices(
             @RequestParam Long plantId,
-            @RequestParam(required = false) Boolean active
+            @RequestParam(required = false) Boolean active,
+            @RequestParam(required = false) Long shiftId
     ) {
-        return ResponseEntity.ok(flexsurServiceService.getServices(plantId, active));
+        return ResponseEntity.ok(flexsurServiceService.getServices(plantId, active, shiftId));
     }
 
     @PostMapping

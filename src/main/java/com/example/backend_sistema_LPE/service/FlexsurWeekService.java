@@ -12,7 +12,7 @@ import java.time.LocalDate;
 public interface FlexsurWeekService {
     FlexsurWeekSchemaDTO getFlexsurWeekSchema(Long plantId, LocalDate weekDate);
 
-    FlexsurWeekResponseDTO getFlexsurWeek(Long plantId, LocalDate weekDate);
+    FlexsurWeekResponseDTO getFlexsurWeek(Long plantId, LocalDate weekDate, Long shiftId);
 
     void saveFlexsurWeek(FlexsurWeekSaveRequestDTO request, Long userId);
 
@@ -22,11 +22,21 @@ public interface FlexsurWeekService {
 
     void deleteManualRow(Long manualFlexsurRowId);
 
-    void updateFlexsurStatus(Long plantId, LocalDate weekDate, String status, Long userId);
+    void updateFlexsurStatus(Long plantId, LocalDate weekDate, Long shiftId, String status, Long userId);
+
+    void updateFlexsurStatus(
+            Long plantId,
+            LocalDate weekDate,
+            Long shiftId,
+            String status,
+            Long userId,
+            java.util.List<Long> recipientUserIds
+    );
 
     java.util.List<com.example.backend_sistema_LPE.dto.CascadaSummaryDTO> getFlexsurSummaries(
             String status,
             Long plantId,
-            LocalDate weekDate
+            LocalDate weekDate,
+            Long recipientUserId
     );
 }

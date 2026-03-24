@@ -19,4 +19,5 @@ public class RegalWeekSaveRequestDTO {
     private LocalDate weekDate;
     private Long shiftId;
     private List<RegalWeekRowDTO> rows;
+    private RegalWeekTotalsDTO totals;
 }

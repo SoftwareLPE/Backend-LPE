@@ -48,9 +48,10 @@ public class FlexsurWeekController {
     @GetMapping
     public ResponseEntity<FlexsurWeekResponseDTO> getFlexsurWeek(
             @RequestParam Long plantId,
-            @RequestParam("weekDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekDate
+            @RequestParam("weekDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekDate,
+            @RequestParam(required = false) Long shiftId
     ) {
-        return ResponseEntity.ok(flexsurWeekService.getFlexsurWeek(plantId, weekDate));
+        return ResponseEntity.ok(flexsurWeekService.getFlexsurWeek(plantId, weekDate, shiftId));
     }
 
     @PutMapping
@@ -111,8 +112,10 @@ public class FlexsurWeekController {
         flexsurWeekService.updateFlexsurStatus(
                 plantId,
                 request.getWeekDate(),
+                parseShiftId(request.getShiftId()),
                 request.getStatus(),
-                userId
+                userId,
+                request.getRecipientUserIds()
         );
         return ResponseEntity.noContent().build();
     }
@@ -121,8 +124,29 @@ public class FlexsurWeekController {
     public ResponseEntity<List<CascadaSummaryDTO>> getFlexsurSummaries(
             @RequestParam String status,
             @RequestParam(required = false) Long plantId,
-            @RequestParam(name = "weekDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekDate
+            @RequestParam(name = "weekDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekDate,
+            @RequestParam(required = false) Long recipientUserId,
+            Authentication authentication
     ) {
-        return ResponseEntity.ok(flexsurWeekService.getFlexsurSummaries(status, plantId, weekDate));
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            return ResponseEntity.status(403).build();
+        }
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMINISTRADOR".equals(a.getAuthority()));
+        Long effectiveRecipientId = isAdmin && recipientUserId != null
+                ? recipientUserId
+                : principal.getUserId();
+        return ResponseEntity.ok(flexsurWeekService.getFlexsurSummaries(status, plantId, weekDate, effectiveRecipientId));
+    }
+
+    private Long parseShiftId(String shiftId) {
+        if (shiftId == null || shiftId.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(shiftId);
+        } catch (NumberFormatException ex) {
+            throw new RuntimeException("Invalid shiftId");
+        }
     }
 }

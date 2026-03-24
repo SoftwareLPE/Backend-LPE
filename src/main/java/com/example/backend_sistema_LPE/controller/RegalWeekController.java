@@ -110,7 +110,8 @@ public class RegalWeekController {
                 plantId,
                 request.getWeekDate(),
                 request.getStatus(),
-                userId
+                userId,
+                request.getRecipientUserIds()
         );
         return ResponseEntity.noContent().build();
     }
@@ -119,8 +120,18 @@ public class RegalWeekController {
     public ResponseEntity<List<CascadaSummaryDTO>> getRegalSummaries(
             @RequestParam String status,
             @RequestParam(required = false) Long plantId,
-            @RequestParam(name = "weekDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekDate
+            @RequestParam(name = "weekDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekDate,
+            @RequestParam(required = false) Long recipientUserId,
+            Authentication authentication
     ) {
-        return ResponseEntity.ok(regalWeekService.getRegalSummaries(status, plantId, weekDate));
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            return ResponseEntity.status(403).build();
+        }
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMINISTRADOR".equals(a.getAuthority()));
+        Long effectiveRecipientId = isAdmin && recipientUserId != null
+                ? recipientUserId
+                : principal.getUserId();
+        return ResponseEntity.ok(regalWeekService.getRegalSummaries(status, plantId, weekDate, effectiveRecipientId));
     }
 }

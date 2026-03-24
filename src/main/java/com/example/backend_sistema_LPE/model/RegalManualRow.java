@@ -39,6 +39,12 @@ public class RegalManualRow {
     @Column(name = "driver_name_override", nullable = false)
     private String driverNameOverride;
 
+    @Column(name = "route_name")
+    private String routeName;
+
+    @Column(name = "route_location")
+    private String routeLocation;
+
     @Column(name = "sort_order")
     private Integer sortOrder;
 

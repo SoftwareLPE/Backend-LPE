@@ -9,10 +9,13 @@ import com.example.backend_sistema_LPE.dto.RegalWeekSchemaDTO;
 import com.example.backend_sistema_LPE.dto.RegalWeekSchemaTripTypeDTO;
 import com.example.backend_sistema_LPE.dto.RegalWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.RegalWeekTotalsDTO;
+import com.example.backend_sistema_LPE.dto.RegalWeeklySummaryDTO;
 import com.example.backend_sistema_LPE.dto.UpdateRegalManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.CascadaSummaryDTO;
 import com.example.backend_sistema_LPE.dto.InboxMessageDTO;
+import com.example.backend_sistema_LPE.enums.CascadaType;
 import com.example.backend_sistema_LPE.enums.CascadaStatus;
+import com.example.backend_sistema_LPE.model.CascadaRecipient;
 import com.example.backend_sistema_LPE.model.Driver;
 import com.example.backend_sistema_LPE.model.DriverPlantAssignment;
 import com.example.backend_sistema_LPE.model.Plant;
@@ -20,29 +23,38 @@ import com.example.backend_sistema_LPE.model.RegalDetail;
 import com.example.backend_sistema_LPE.model.RegalManualRow;
 import com.example.backend_sistema_LPE.model.RegalTripType;
 import com.example.backend_sistema_LPE.model.RegalWeek;
+import com.example.backend_sistema_LPE.model.RegalWeekSummarySnapshot;
 import com.example.backend_sistema_LPE.model.Shift;
 import com.example.backend_sistema_LPE.model.User;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverPlantAssignmentRepository;
+import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
+import com.example.backend_sistema_LPE.repository.CascadaRecipientRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.RegalManualRowRepository;
 import com.example.backend_sistema_LPE.repository.RegalTripTypeRepository;
 import com.example.backend_sistema_LPE.repository.RegalWeekRepository;
+import com.example.backend_sistema_LPE.repository.RegalWeekSummarySnapshotRepository;
 import com.example.backend_sistema_LPE.repository.ShiftRepository;
 import com.example.backend_sistema_LPE.repository.UserRepository;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
 public class RegalWeekServiceImpl implements RegalWeekService {
+    private static final String REGAL_RECIPIENT_SHIFT_KEY = "REGAL";
+
     private final RegalWeekRepository regalWeekRepository;
     private final PlantRepository plantRepository;
     private final ShiftRepository shiftRepository;
@@ -50,6 +62,9 @@ public class RegalWeekServiceImpl implements RegalWeekService {
     private final RegalManualRowRepository regalManualRowRepository;
     private final RegalTripTypeRepository regalTripTypeRepository;
     private final DriverPlantAssignmentRepository driverPlantAssignmentRepository;
+    private final DriverRouteRepository driverRouteRepository;
+    private final CascadaRecipientRepository cascadaRecipientRepository;
+    private final RegalWeekSummarySnapshotRepository regalWeekSummarySnapshotRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
@@ -61,6 +76,9 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             RegalManualRowRepository regalManualRowRepository,
             RegalTripTypeRepository regalTripTypeRepository,
             DriverPlantAssignmentRepository driverPlantAssignmentRepository,
+            DriverRouteRepository driverRouteRepository,
+            CascadaRecipientRepository cascadaRecipientRepository,
+            RegalWeekSummarySnapshotRepository regalWeekSummarySnapshotRepository,
             UserRepository userRepository,
             SimpMessagingTemplate messagingTemplate
     ) {
@@ -71,6 +89,9 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         this.regalManualRowRepository = regalManualRowRepository;
         this.regalTripTypeRepository = regalTripTypeRepository;
         this.driverPlantAssignmentRepository = driverPlantAssignmentRepository;
+        this.driverRouteRepository = driverRouteRepository;
+        this.cascadaRecipientRepository = cascadaRecipientRepository;
+        this.regalWeekSummarySnapshotRepository = regalWeekSummarySnapshotRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
     }
@@ -120,6 +141,7 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         List<RegalWeekRowDTO> rows = mergeBaseRows(baseRows, savedRows);
         enrichRowTotals(rows, tripTypes);
         RegalWeekTotalsDTO totals = buildTotals(rows, tripTypes);
+        applyPersistedWeeklySummary(totals, findSummarySnapshot(plantId, weekDate).orElse(null));
 
         return new RegalWeekResponseDTO(plantId, weekDate, null, rows, totals);
     }
@@ -141,10 +163,15 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                         request.getWeekDate()
                 );
 
-        regalWeekRepository.deleteByPlantPlantIdAndWeekDate(
+        List<RegalWeek> existingWeeks = regalWeekRepository.findByPlantPlantIdAndWeekDate(
                 request.getPlantId(),
                 request.getWeekDate()
         );
+        if (!existingWeeks.isEmpty()) {
+            regalWeekRepository.deleteAll(existingWeeks);
+            regalWeekRepository.flush();
+        }
+        deleteSummarySnapshot(request.getPlantId(), request.getWeekDate());
 
         List<RegalWeekRowDTO> rows = request.getRows() == null ? List.of() : request.getRows();
         for (RegalWeekRowDTO row : rows) {
@@ -157,6 +184,9 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             RegalManualRow manualRow = resolveManualRow(row, manualRows);
             if (isManualRow(row) && manualRow == null) {
                 throw new RuntimeException("Manual row not found: " + row.getManualRegalRowId());
+            }
+            if (manualRow != null) {
+                syncManualRowFromWeekRow(manualRow, row, userId);
             }
 
             if (manualRow != null) {
@@ -191,6 +221,8 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             week.setDetails(detailEntities);
             regalWeekRepository.save(week);
         }
+
+        saveSummarySnapshot(plant, request.getWeekDate(), request.getTotals(), userId);
     }
 
     @Override
@@ -226,6 +258,8 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         manualRow.setPlant(plant);
         manualRow.setWeekDate(request.getWeekDate());
         manualRow.setDriverNameOverride(driverNameOverride);
+        manualRow.setRouteName(trimToNull(request.getRouteName()));
+        manualRow.setRouteLocation(trimToNull(request.getRouteLocation()));
         manualRow.setSortOrder(request.getSortOrder() == null ? nextSortOrder : request.getSortOrder());
         manualRow.setUpdatedAt(LocalDateTime.now());
         manualRow.setUpdatedByUserId(userId);
@@ -254,6 +288,12 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             }
             manualRow.setDriverNameOverride(driverNameOverride);
         }
+        if (request.getRouteName() != null) {
+            manualRow.setRouteName(trimToNull(request.getRouteName()));
+        }
+        if (request.getRouteLocation() != null) {
+            manualRow.setRouteLocation(trimToNull(request.getRouteLocation()));
+        }
         if (request.getSortOrder() != null) {
             manualRow.setSortOrder(request.getSortOrder());
         }
@@ -278,6 +318,18 @@ public class RegalWeekServiceImpl implements RegalWeekService {
     @Override
     @Transactional
     public void updateRegalStatus(Long plantId, LocalDate weekDate, String status, Long userId) {
+        updateRegalStatus(plantId, weekDate, status, userId, null);
+    }
+
+    @Override
+    @Transactional
+    public void updateRegalStatus(
+            Long plantId,
+            LocalDate weekDate,
+            String status,
+            Long userId,
+            List<Long> recipientUserIds
+    ) {
         if (plantId == null) {
             throw new RuntimeException("plantId is required");
         }
@@ -301,6 +353,9 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         }
 
         LocalDateTime now = LocalDateTime.now();
+        if (targetStatus == CascadaStatus.SENT && (recipientUserIds == null || recipientUserIds.stream().filter(java.util.Objects::nonNull).toList().isEmpty())) {
+            throw new RuntimeException("recipientUserIds is required");
+        }
         for (RegalWeek week : weeks) {
             if (targetStatus == CascadaStatus.SENT) {
                 if (week.getSentAt() == null) {
@@ -316,18 +371,54 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         }
         regalWeekRepository.saveAll(weeks);
 
-        if (targetStatus == CascadaStatus.SENT || targetStatus == CascadaStatus.DELETED) {
-            publishRegalInboxMessagesForStatus(
+        LocalDate effectiveWeekStartDate = resolveWeekStartDate(weeks.get(0));
+        if (targetStatus == CascadaStatus.SENT) {
+            Plant plant = plantRepository.findById(plantId)
+                    .orElseThrow(() -> new RuntimeException("Plant not found"));
+            cascadaRecipientRepository.deleteByPlantPlantIdAndWeekStartDateAndShiftIdAndCascadaType(
+                    plantId,
+                    effectiveWeekStartDate,
+                    REGAL_RECIPIENT_SHIFT_KEY,
+                    CascadaType.REGAL
+            );
+            List<CascadaRecipient> recipients = new ArrayList<>();
+            for (Long recipientUserId : recipientUserIds) {
+                if (recipientUserId == null) {
+                    continue;
+                }
+                CascadaRecipient recipient = new CascadaRecipient();
+                recipient.setPlant(plant);
+                recipient.setWeekStartDate(effectiveWeekStartDate);
+                recipient.setShiftId(REGAL_RECIPIENT_SHIFT_KEY);
+                recipient.setDayKey(null);
+                recipient.setCascadaType(CascadaType.REGAL);
+                recipient.setRecipientUserId(recipientUserId);
+                recipient.setSentAt(now);
+                recipient.setSentByUserId(userId);
+                recipients.add(recipient);
+            }
+            cascadaRecipientRepository.saveAll(recipients);
+            publishRegalInboxMessagesAfterCommit(
                     targetStatus.name(),
                     plantId,
-                    weekDate,
-                    userId
+                    effectiveWeekStartDate,
+                    recipientUserIds
+            );
+            return;
+        }
+
+        if (targetStatus == CascadaStatus.DELETED) {
+            publishRegalInboxMessagesAfterCommit(
+                    targetStatus.name(),
+                    plantId,
+                    effectiveWeekStartDate,
+                    recipientUserIdsForRegal(plantId, effectiveWeekStartDate)
             );
         }
     }
 
     @Override
-    public List<CascadaSummaryDTO> getRegalSummaries(String status, Long plantId, LocalDate weekDate) {
+    public List<CascadaSummaryDTO> getRegalSummaries(String status, Long plantId, LocalDate weekDate, Long recipientUserId) {
         String effectiveStatus = (status == null || status.isBlank()) ? CascadaStatus.SENT.name() : status;
         CascadaStatus cascadaStatus;
         try {
@@ -346,6 +437,20 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             LocalDate effectiveRequestedWeekStartDate = WeekMetadataResolver.resolve(weekDate, null, null, null).getWeekStartDate();
             weeks = weeks.stream()
                     .filter(week -> resolveWeekStartDate(week).equals(effectiveRequestedWeekStartDate))
+                    .toList();
+        }
+
+        if (recipientUserId != null) {
+            List<CascadaRecipient> recipients = cascadaRecipientRepository
+                    .findByRecipientUserIdAndCascadaType(recipientUserId, CascadaType.REGAL);
+            java.util.Set<String> allowedKeys = recipients.stream()
+                    .map(r -> r.getPlant().getPlantId() + "|" + r.getWeekStartDate() + "|" + r.getShiftId())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            weeks = weeks.stream()
+                    .filter(week -> allowedKeys.contains(
+                            week.getPlant().getPlantId() + "|" + resolveWeekStartDate(week) + "|" + REGAL_RECIPIENT_SHIFT_KEY
+                    ))
                     .toList();
         }
 
@@ -432,9 +537,10 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                 driverId,
                 week.getManualRow() == null ? week.getDriver() == null ? null : week.getDriver().getDriverName() : week.getManualRow().getDriverNameOverride(),
                 week.getManualRow() == null ? week.getDriver() == null ? null : week.getDriver().getLastName() : null,
-                assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteId(),
-                assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteName(),
-                week.getManualRow() == null ? assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getLocation() : null,
+                resolveDriverType(driverId, week.getPlant().getPlantId(), assignment),
+                week.getManualRow() == null ? assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteId() : null,
+                week.getManualRow() == null ? assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteName() : week.getManualRow().getRouteName(),
+                week.getManualRow() == null ? assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getLocation() : week.getManualRow().getRouteLocation(),
                 details,
                 null,
                 null
@@ -458,6 +564,7 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                     driver.getDriverId(),
                     driver.getDriverName(),
                     driver.getLastName(),
+                    resolveDriverType(driver.getDriverId(), plantId, assignment),
                     assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteId(),
                     assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getRouteName(),
                     assignment == null || assignment.getRoute() == null ? null : assignment.getRoute().getLocation(),
@@ -486,7 +593,8 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                         null,
                         null,
                         null,
-                        null,
+                        row.getRouteName(),
+                        row.getRouteLocation(),
                         buildEmptyDetails(tripTypes),
                         null,
                         null
@@ -541,6 +649,18 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         }
         if (base.getManualRegalRowId() == null && saved.getManualRegalRowId() != null) {
             base.setManualRegalRowId(saved.getManualRegalRowId());
+        }
+        if (base.getDriverId() == null && saved.getDriverId() != null) {
+            base.setDriverId(saved.getDriverId());
+        }
+        if (base.getDriverName() == null && saved.getDriverName() != null) {
+            base.setDriverName(saved.getDriverName());
+        }
+        if (base.getDriverLastName() == null && saved.getDriverLastName() != null) {
+            base.setDriverLastName(saved.getDriverLastName());
+        }
+        if (base.getDriverType() == null && saved.getDriverType() != null) {
+            base.setDriverType(saved.getDriverType());
         }
         if (base.getRouteId() == null && saved.getRouteId() != null) {
             base.setRouteId(saved.getRouteId());
@@ -598,6 +718,23 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         return null;
     }
 
+    private String resolveDriverType(Long driverId, Long plantId, DriverPlantAssignment assignment) {
+        if (assignment != null && assignment.getDriverType() != null) {
+            return assignment.getDriverType().name();
+        }
+        if (driverId == null) {
+            return null;
+        }
+        return driverRouteRepository.findByDriverDriverId(driverId).stream()
+                .filter(driverRoute -> driverRoute.getDriverType() != null)
+                .filter(driverRoute -> driverRoute.getRoute() == null
+                        || driverRoute.getRoute().getPlant() == null
+                        || plantId.equals(driverRoute.getRoute().getPlant().getPlantId()))
+                .map(driverRoute -> driverRoute.getDriverType().name())
+                .findFirst()
+                .orElse(null);
+    }
+
     private RegalManualRow resolveManualRow(RegalWeekRowDTO row, List<RegalManualRow> manualRows) {
         if (row == null || row.getManualRegalRowId() == null) {
             return null;
@@ -628,8 +765,29 @@ public class RegalWeekServiceImpl implements RegalWeekService {
         return new RegalManualRowDTO(
                 row.getManualRegalRowId(),
                 row.getDriverNameOverride(),
+                row.getRouteName(),
+                row.getRouteLocation(),
                 row.getSortOrder()
         );
+    }
+
+    private void syncManualRowFromWeekRow(RegalManualRow manualRow, RegalWeekRowDTO row, Long userId) {
+        if (manualRow == null || row == null) {
+            return;
+        }
+        String driverName = trimToNull(row.getDriverName());
+        if (driverName != null) {
+            manualRow.setDriverNameOverride(driverName);
+        }
+        if (row.getRouteName() != null) {
+            manualRow.setRouteName(trimToNull(row.getRouteName()));
+        }
+        if (row.getRecorrido() != null) {
+            manualRow.setRouteLocation(trimToNull(row.getRecorrido()));
+        }
+        manualRow.setUpdatedAt(LocalDateTime.now());
+        manualRow.setUpdatedByUserId(userId);
+        regalManualRowRepository.save(manualRow);
     }
 
     private RegalWeekSchemaTripTypeDTO toSchemaTripTypeDTO(RegalTripType tripType) {
@@ -674,7 +832,54 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             }
         }
 
-        return new RegalWeekTotalsDTO(byTripTypeDay, byTripType, weekTotal);
+        return new RegalWeekTotalsDTO(byTripTypeDay, byTripType, weekTotal, null);
+    }
+
+    private Optional<RegalWeekSummarySnapshot> findSummarySnapshot(Long plantId, LocalDate weekDate) {
+        return regalWeekSummarySnapshotRepository.findByPlantPlantIdAndWeekDate(plantId, weekDate);
+    }
+
+    private void deleteSummarySnapshot(Long plantId, LocalDate weekDate) {
+        findSummarySnapshot(plantId, weekDate).ifPresent(regalWeekSummarySnapshotRepository::delete);
+    }
+
+    private void saveSummarySnapshot(
+            Plant plant,
+            LocalDate weekDate,
+            RegalWeekTotalsDTO totals,
+            Long userId
+    ) {
+        RegalWeeklySummaryDTO weeklySummary = totals == null ? null : totals.getWeeklySummary();
+        if (weeklySummary == null) {
+            return;
+        }
+
+        RegalWeekSummarySnapshot snapshot = new RegalWeekSummarySnapshot();
+        snapshot.setPlant(plant);
+        snapshot.setWeekDate(weekDate);
+        snapshot.setNormalShort(zeroIfNull(weeklySummary.getNormalShort()));
+        snapshot.setNormalLong(zeroIfNull(weeklySummary.getNormalLong()));
+        snapshot.setExtraShort(zeroIfNull(weeklySummary.getExtraShort()));
+        snapshot.setExtraLong(zeroIfNull(weeklySummary.getExtraLong()));
+        snapshot.setUpdatedAt(LocalDateTime.now());
+        snapshot.setUpdatedByUserId(userId);
+        regalWeekSummarySnapshotRepository.save(snapshot);
+    }
+
+    private void applyPersistedWeeklySummary(RegalWeekTotalsDTO totals, RegalWeekSummarySnapshot snapshot) {
+        if (totals == null || snapshot == null) {
+            return;
+        }
+        totals.setWeeklySummary(new RegalWeeklySummaryDTO(
+                snapshot.getNormalShort(),
+                snapshot.getNormalLong(),
+                snapshot.getExtraShort(),
+                snapshot.getExtraLong()
+        ));
+    }
+
+    private int zeroIfNull(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private void enrichRowTotals(List<RegalWeekRowDTO> rows, List<RegalTripType> tripTypes) {
@@ -749,45 +954,78 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             String status,
             Long plantId,
             LocalDate weekDate,
-            Long userId
+            List<Long> recipientUserIds
     ) {
-        if (userId == null) {
+        if (recipientUserIds == null || recipientUserIds.isEmpty()) {
             return;
         }
-        List<CascadaSummaryDTO> summaries = getRegalSummaries(status, plantId, weekDate);
-        if (summaries.isEmpty()) {
+        for (Long recipientUserId : recipientUserIds) {
+            if (recipientUserId == null) {
+                continue;
+            }
+            List<CascadaSummaryDTO> summaries = getRegalSummaries(status, plantId, weekDate, recipientUserId);
+            if (summaries.isEmpty()) {
+                continue;
+            }
+
+            CascadaSummaryDTO summary = summaries.get(0);
+            String weekStart = summary.getWeekDate().toString();
+            String sentAtValue = summary.getSentAt() == null ? null : summary.getSentAt().toString();
+
+            String title = summary.getPlantName();
+            String subtitle = "Semana " + weekStart;
+            String fileName = "Cascada_" + summary.getPlantName() + "_" + weekStart + ".xlsx";
+            String sheetTitle = summary.getPlantName();
+
+            InboxMessageDTO payload = new InboxMessageDTO(
+                    summary.getId(),
+                    summary.getCascadaId(),
+                    title,
+                    subtitle,
+                    sentAtValue,
+                    sentAtValue,
+                    fileName,
+                    sheetTitle,
+                    summary.getCompanyName(),
+                    summary.getSentBy(),
+                    summary.getPlantId(),
+                    weekStart,
+                    weekStart,
+                    summary.getShiftIds().stream().toList(),
+                    summary.getDayKeys().stream().toList(),
+                    status
+            );
+
+            messagingTemplate.convertAndSend("/topic/inbox/" + recipientUserId, payload);
+        }
+    }
+
+    private void publishRegalInboxMessagesAfterCommit(
+            String status,
+            Long plantId,
+            LocalDate weekDate,
+            List<Long> recipientUserIds
+    ) {
+        Runnable publisher = () -> publishRegalInboxMessagesForStatus(status, plantId, weekDate, recipientUserIds);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
             return;
         }
+        publisher.run();
+    }
 
-        CascadaSummaryDTO summary = summaries.get(0);
-        String weekStart = summary.getWeekDate().toString();
-        String sentAtValue = summary.getSentAt() == null ? null : summary.getSentAt().toString();
-
-        String title = summary.getPlantName();
-        String subtitle = "Semana " + weekStart;
-        String fileName = "Cascada_" + summary.getPlantName() + "_" + weekStart + ".xlsx";
-        String sheetTitle = summary.getPlantName();
-
-        InboxMessageDTO payload = new InboxMessageDTO(
-                summary.getId(),
-                summary.getCascadaId(),
-                title,
-                subtitle,
-                sentAtValue,
-                sentAtValue,
-                fileName,
-                sheetTitle,
-                summary.getCompanyName(),
-                summary.getSentBy(),
-                summary.getPlantId(),
-                weekStart,
-                weekStart,
-                summary.getShiftIds().stream().toList(),
-                summary.getDayKeys().stream().toList(),
-                status
+    private List<Long> recipientUserIdsForRegal(Long plantId, LocalDate weekStartDate) {
+        return cascadaRecipientRepository.findRecipientUserIdsByShift(
+                plantId,
+                weekStartDate,
+                REGAL_RECIPIENT_SHIFT_KEY,
+                CascadaType.REGAL
         );
-
-        messagingTemplate.convertAndSend("/topic/inbox/" + userId, payload);
     }
 
     private String stableCascadaId(Long plantId, LocalDate weekStartDate) {

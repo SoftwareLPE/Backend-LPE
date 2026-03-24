@@ -7,11 +7,11 @@ import lombok.Setter;
 
 @Getter
 @Setter
-@AllArgsConstructor
 @NoArgsConstructor
-public class FlexsurManualRowDTO {
-    private Long manualFlexsurRowId;
-    private Long shiftId;
-    private String serviceName;
-    private Integer sortOrder;
+@AllArgsConstructor
+public class RegalWeeklySummaryDTO {
+    private Integer normalShort;
+    private Integer normalLong;
+    private Integer extraShort;
+    private Integer extraLong;
 }

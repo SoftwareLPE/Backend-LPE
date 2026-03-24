@@ -20,14 +20,14 @@ import java.time.LocalDateTime;
 @Entity
 @Getter
 @Setter
-@AllArgsConstructor
 @NoArgsConstructor
-@Table(name = "flexsur_manual_row")
-public class FlexsurManualRow {
+@AllArgsConstructor
+@Table(name = "regal_week_summary")
+public class RegalWeekSummarySnapshot {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "manual_flexsur_row_id")
-    private Long manualFlexsurRowId;
+    @Column(name = "regal_week_summary_id")
+    private Long regalWeekSummaryId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "plant_id", nullable = false)
@@ -36,15 +36,17 @@ public class FlexsurManualRow {
     @Column(name = "week_date", nullable = false)
     private LocalDate weekDate;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "shift_id")
-    private Shift shift;
+    @Column(name = "normal_short", nullable = false)
+    private Integer normalShort = 0;
 
-    @Column(name = "service_name", nullable = false)
-    private String serviceName;
+    @Column(name = "normal_long", nullable = false)
+    private Integer normalLong = 0;
 
-    @Column(name = "sort_order")
-    private Integer sortOrder;
+    @Column(name = "extra_short", nullable = false)
+    private Integer extraShort = 0;
+
+    @Column(name = "extra_long", nullable = false)
+    private Integer extraLong = 0;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;

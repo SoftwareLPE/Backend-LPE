@@ -162,16 +162,14 @@ public class CascadaStandardController {
             @RequestParam(required = false) Long recipientUserId,
             Authentication authentication
     ) {
-        boolean isAdmin = authentication != null && authentication.getAuthorities().stream()
-                .anyMatch(a -> "ROLE_ADMINISTRADOR".equals(a.getAuthority()));
-        Long effectiveRecipientId = recipientUserId;
-        if (!isAdmin) {
-            if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal principal) {
-                effectiveRecipientId = principal.getUserId();
-            } else {
-                return ResponseEntity.status(403).build();
-            }
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            return ResponseEntity.status(403).build();
         }
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMINISTRADOR".equals(a.getAuthority()));
+        Long effectiveRecipientId = isAdmin && recipientUserId != null
+                ? recipientUserId
+                : principal.getUserId();
         return ResponseEntity.ok(
                 cascadaStandardService.getCascadaStandardSummaries(status, plantId, weekDate, effectiveRecipientId)
         );

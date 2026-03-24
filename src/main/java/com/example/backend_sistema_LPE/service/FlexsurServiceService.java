@@ -7,7 +7,7 @@ import com.example.backend_sistema_LPE.dto.FlexsurServiceUpdateRequestDTO;
 import java.util.List;
 
 public interface FlexsurServiceService {
-    List<FlexsurServiceDTO> getServices(Long plantId, Boolean active);
+    List<FlexsurServiceDTO> getServices(Long plantId, Boolean active, Long shiftId);
 
     FlexsurServiceDTO createService(FlexsurServiceCreateRequestDTO request);
 

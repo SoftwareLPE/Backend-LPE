@@ -1,5 +1,6 @@
 package com.example.backend_sistema_LPE.model;
 
+import com.example.backend_sistema_LPE.enums.ShiftType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -37,6 +38,10 @@ public class Shift {
     @Column(name = "end_time", nullable = false)
     private LocalTime endTime;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "shift_type")
+    private ShiftType shiftType = ShiftType.REGULAR;
+
     @ElementCollection
     @CollectionTable(
             name = "shift_days",
@@ -44,6 +49,22 @@ public class Shift {
     )
     @Column(name = "day_key", nullable = false)
     private Set<String> dayKeys = new HashSet<>();
+
+    @ElementCollection
+    @CollectionTable(
+            name = "shift_long_week_days",
+            joinColumns = @JoinColumn(name = "shift_id")
+    )
+    @Column(name = "day_key", nullable = false)
+    private Set<String> longWeekDayKeys = new HashSet<>();
+
+    @ElementCollection
+    @CollectionTable(
+            name = "shift_short_week_days",
+            joinColumns = @JoinColumn(name = "shift_id")
+    )
+    @Column(name = "day_key", nullable = false)
+    private Set<String> shortWeekDayKeys = new HashSet<>();
 
     @ManyToMany(mappedBy = "shifts")
     private Set<Driver> drivers = new HashSet<>();

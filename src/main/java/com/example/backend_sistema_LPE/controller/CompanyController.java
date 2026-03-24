@@ -11,7 +11,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/companies")
-@CrossOrigin(origins ="http://localhost:8081/")
 public class CompanyController {
     private final CompanyService companyService;
 

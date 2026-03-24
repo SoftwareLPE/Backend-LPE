@@ -12,5 +12,7 @@ import lombok.Setter;
 public class RegalManualRowDTO {
     private Long manualRegalRowId;
     private String driverNameOverride;
+    private String routeName;
+    private String routeLocation;
     private Integer sortOrder;
 }

@@ -14,5 +14,16 @@ public interface FlexsurManualRowRepository extends JpaRepository<FlexsurManualR
             LocalDate weekDate
     );
 
+    List<FlexsurManualRow> findByPlantPlantIdAndWeekDateAndShiftShiftIdOrderBySortOrderAscManualFlexsurRowIdAsc(
+            Long plantId,
+            LocalDate weekDate,
+            Long shiftId
+    );
+
+    List<FlexsurManualRow> findByPlantPlantIdAndWeekDateAndShiftIsNullOrderBySortOrderAscManualFlexsurRowIdAsc(
+            Long plantId,
+            LocalDate weekDate
+    );
+
     void deleteByPlantCompanyCompanyId(Long companyId);
 }

@@ -294,6 +294,12 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         if (request.getWeekDate() == null) {
             throw new RuntimeException("weekDate is required");
         }
+        LocalDate effectiveWeekDate = WeekMetadataResolver.resolve(
+                request.getWeekDate(),
+                null,
+                null,
+                null
+        ).getWeekStartDate();
 
         Plant plant = plantRepository.findById(request.getPlantId())
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
@@ -301,7 +307,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         List<CascadaStandardManualRow> existing = manualRowRepository
                 .findByPlantPlantIdAndWeekDateOrderBySortOrderAscManualStandardRowIdAsc(
                         request.getPlantId(),
-                        request.getWeekDate()
+                        effectiveWeekDate
                 );
 
         int nextSortOrder = existing.stream()
@@ -313,7 +319,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
 
         CascadaStandardManualRow manualRow = new CascadaStandardManualRow();
         manualRow.setPlant(plant);
-        manualRow.setWeekDate(request.getWeekDate());
+        manualRow.setWeekDate(effectiveWeekDate);
         manualRow.setDriverNameOverride(trimToNull(request.getDriverNameOverride()));
         manualRow.setRouteId(request.getRouteId());
         manualRow.setRouteName(trimToNull(request.getRouteName()));
@@ -969,8 +975,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         if (!usesNewFlow && request.getManualRows() == null) {
             return existing;
         }
-        List<CascadaStandardManualRowDTO> requestedManualRows =
-                request.getManualRows() == null ? List.of() : request.getManualRows();
+        List<CascadaStandardManualRowDTO> requestedManualRows = collectRequestedManualRows(request);
         if (requestedManualRows.isEmpty()) {
             deleteManualRowsAndCells(existing);
             return List.of();
@@ -979,10 +984,39 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         Map<Long, CascadaStandardManualRow> existingById = existing.stream()
                 .filter(row -> row.getManualStandardRowId() != null)
                 .collect(Collectors.toMap(CascadaStandardManualRow::getManualStandardRowId, row -> row, (a, b) -> a, LinkedHashMap::new));
+        Map<String, CascadaStandardManualRow> existingByLogicalKey = existing.stream()
+                .collect(Collectors.toMap(
+                        this::manualRowLogicalKey,
+                        row -> row,
+                        (a, b) -> a,
+                        LinkedHashMap::new
+                ));
+
+        LinkedHashMap<String, CascadaStandardManualRowDTO> dedupedRequestedManualRows = new LinkedHashMap<>();
+        for (CascadaStandardManualRowDTO dto : requestedManualRows) {
+            CascadaStandardManualRow matchedExisting = resolveExistingManualRow(dto, existingById, existingByLogicalKey);
+            String key = matchedExisting != null && matchedExisting.getManualStandardRowId() != null
+                    ? "M:" + matchedExisting.getManualStandardRowId()
+                    : "NEW:" + manualRowLogicalKey(dto);
+            CascadaStandardManualRowDTO normalized = new CascadaStandardManualRowDTO();
+            normalized.setManualStandardRowId(
+                    dto.getManualStandardRowId() != null
+                            ? dto.getManualStandardRowId()
+                            : matchedExisting == null ? null : matchedExisting.getManualStandardRowId()
+            );
+            normalized.setDriverNameOverride(dto.getDriverNameOverride());
+            normalized.setRouteId(dto.getRouteId());
+            normalized.setRouteName(dto.getRouteName());
+            normalized.setSortOrder(dto.getSortOrder());
+            if (normalized.getManualStandardRowId() != null && matchedExisting != null) {
+                existingById.putIfAbsent(normalized.getManualStandardRowId(), matchedExisting);
+            }
+            dedupedRequestedManualRows.put(key, normalized);
+        }
 
         List<CascadaStandardManualRow> persisted = new ArrayList<>();
         int sequence = 0;
-        for (CascadaStandardManualRowDTO dto : requestedManualRows) {
+        for (CascadaStandardManualRowDTO dto : dedupedRequestedManualRows.values()) {
             CascadaStandardManualRow row = dto.getManualStandardRowId() == null
                     ? new CascadaStandardManualRow()
                     : existingById.getOrDefault(dto.getManualStandardRowId(), new CascadaStandardManualRow());
@@ -1007,6 +1041,99 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                 request.getPlantId(),
                 request.getWeekDate()
         );
+    }
+
+    private List<CascadaStandardManualRowDTO> collectRequestedManualRows(CascadaSaveRequestDTO request) {
+        List<CascadaStandardManualRowDTO> requestedManualRows = new ArrayList<>();
+        if (request.getManualRows() != null) {
+            requestedManualRows.addAll(request.getManualRows());
+        }
+
+        if (request.getRows() != null) {
+            for (CascadaRowDTO row : request.getRows()) {
+                if (!isManualRow(row)) {
+                    continue;
+                }
+                CascadaStandardManualRowDTO dto = new CascadaStandardManualRowDTO();
+                dto.setManualStandardRowId(row.getManualStandardRowId());
+                dto.setDriverNameOverride(row.getDriverNameOverride());
+                dto.setRouteId(row.getRouteId());
+                dto.setRouteName(row.getRouteName());
+                requestedManualRows.add(dto);
+            }
+        }
+
+        if (request.getDays() != null) {
+            for (List<CascadaRowDTO> rows : request.getDays().values()) {
+                if (rows == null) {
+                    continue;
+                }
+                for (CascadaRowDTO row : rows) {
+                    if (!isManualRow(row)) {
+                        continue;
+                    }
+                    CascadaStandardManualRowDTO dto = new CascadaStandardManualRowDTO();
+                    dto.setManualStandardRowId(row.getManualStandardRowId());
+                    dto.setDriverNameOverride(row.getDriverNameOverride());
+                    dto.setRouteId(row.getRouteId());
+                    dto.setRouteName(row.getRouteName());
+                    requestedManualRows.add(dto);
+                }
+            }
+        }
+
+        return requestedManualRows;
+    }
+
+    private CascadaStandardManualRow resolveExistingManualRow(
+            CascadaStandardManualRowDTO dto,
+            Map<Long, CascadaStandardManualRow> existingById,
+            Map<String, CascadaStandardManualRow> existingByLogicalKey
+    ) {
+        if (dto == null) {
+            return null;
+        }
+        if (dto.getManualStandardRowId() != null) {
+            CascadaStandardManualRow existing = existingById.get(dto.getManualStandardRowId());
+            if (existing != null) {
+                return existing;
+            }
+            return manualRowRepository.findById(dto.getManualStandardRowId()).orElse(null);
+        }
+        return existingByLogicalKey.get(manualRowLogicalKey(dto));
+    }
+
+    private String manualRowLogicalKey(CascadaStandardManualRow row) {
+        if (row == null) {
+            return "NULL";
+        }
+        return manualRowLogicalKey(
+                row.getDriverNameOverride(),
+                row.getRouteId(),
+                row.getRouteName()
+        );
+    }
+
+    private String manualRowLogicalKey(CascadaStandardManualRowDTO row) {
+        if (row == null) {
+            return "NULL";
+        }
+        return manualRowLogicalKey(
+                row.getDriverNameOverride(),
+                row.getRouteId(),
+                row.getRouteName()
+        );
+    }
+
+    private String manualRowLogicalKey(String driverNameOverride, Long routeId, String routeName) {
+        return "D:" + normalizeManualString(driverNameOverride)
+                + "|RID:" + (routeId == null ? "NULL" : routeId)
+                + "|RN:" + normalizeManualString(routeName);
+    }
+
+    private String normalizeManualString(String value) {
+        String trimmed = trimToNull(value);
+        return trimmed == null ? "" : trimmed.toUpperCase();
     }
 
     private void deleteManualRowsAndCells(List<CascadaStandardManualRow> manualRows) {

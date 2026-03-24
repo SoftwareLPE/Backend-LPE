@@ -17,6 +17,7 @@ public class FlexsurWeekResponseDTO {
     private Long plantId;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;
+    private Long shiftId;
     private String status;
     private List<FlexsurWeekRowDTO> rows;
     private FlexsurWeekTotalsDTO totals;
