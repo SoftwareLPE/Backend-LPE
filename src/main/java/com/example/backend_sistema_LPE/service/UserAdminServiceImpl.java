@@ -6,7 +6,10 @@ import com.example.backend_sistema_LPE.dto.UserDetailDTO;
 import com.example.backend_sistema_LPE.dto.UserTableDTO;
 import com.example.backend_sistema_LPE.model.Role;
 import com.example.backend_sistema_LPE.model.User;
-import com.example.backend_sistema_LPE.repository.*;
+import com.example.backend_sistema_LPE.repository.RoleRepository;
+import com.example.backend_sistema_LPE.repository.UserCompanyRepository;
+import com.example.backend_sistema_LPE.repository.UserPlantRepository;
+import com.example.backend_sistema_LPE.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -27,14 +30,20 @@ public class UserAdminServiceImpl implements UserAdminService {
     private final PasswordEncoder passwordEncoder;
     private final UserAssignmentService userAssignmentService;
 
-    public UserAdminServiceImpl(UserRepository userRepository, RoleRepository roleRepository, UserCompanyRepository userCompanyRepository, UserPlantRepository userPlantRepository, PasswordEncoder passwordEncoder, UserAssignmentService userAssignmentService) {
+    public UserAdminServiceImpl(
+            UserRepository userRepository,
+            RoleRepository roleRepository,
+            UserCompanyRepository userCompanyRepository,
+            UserPlantRepository userPlantRepository,
+            PasswordEncoder passwordEncoder,
+            UserAssignmentService userAssignmentService
+    ) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userCompanyRepository = userCompanyRepository;
         this.userPlantRepository = userPlantRepository;
         this.passwordEncoder = passwordEncoder;
         this.userAssignmentService = userAssignmentService;
-
     }
 
     @Override
@@ -51,31 +60,29 @@ public class UserAdminServiceImpl implements UserAdminService {
                 active,
                 pageable
         );
-
     }
 
     @Override
     @Transactional
     public UserTableDTO createUser(CreateUserRequestDTO createUserRequestDTO) {
-        // 1. Validaciones básicas
+        String normalizedEmail = normalizeOptionalEmail(createUserRequestDTO.getEmail());
+
         if (userRepository.existsByUserName(createUserRequestDTO.getUsername())) {
             throw new RuntimeException("Username already exists");
         }
 
-        if (userRepository.existsByEmail(createUserRequestDTO.getEmail())) {
+        if (normalizedEmail != null && userRepository.existsByEmail(normalizedEmail)) {
             throw new RuntimeException("Email already exists");
         }
 
-        // 2. Rol
         Role role = roleRepository.findById(createUserRequestDTO.getRoleId())
                 .orElseThrow(() -> new RuntimeException("Role not found"));
 
-        // 3. Crear usuario
         User user = new User();
         user.setName(createUserRequestDTO.getName());
         user.setLastName(createUserRequestDTO.getLastName());
         user.setUserName(createUserRequestDTO.getUsername());
-        user.setEmail(createUserRequestDTO.getEmail());
+        user.setEmail(normalizedEmail);
         user.setActive(createUserRequestDTO.getActive());
         user.setRole(role);
         user.setPassword(passwordEncoder.encode(createUserRequestDTO.getPassword()));
@@ -83,18 +90,15 @@ public class UserAdminServiceImpl implements UserAdminService {
 
         user = userRepository.save(user);
 
-        // 4. Asignar compañías
         userAssignmentService.assignCompaniesToUser(
                 user.getUserId(),
                 createUserRequestDTO.getCompanyIds()
         );
 
-        // 5. Asignar plantas
         if (createUserRequestDTO.getPlantIds() != null && !createUserRequestDTO.getPlantIds().isEmpty()) {
             userAssignmentService.assignPlantsToUser(user.getUserId(), createUserRequestDTO.getPlantIds());
         }
 
-        // 6. Respuesta para tabla
         return new UserTableDTO(
                 user.getUserId(),
                 user.getName() + " " + user.getLastName(),
@@ -109,28 +113,30 @@ public class UserAdminServiceImpl implements UserAdminService {
     @Override
     @Transactional
     public UserTableDTO updateUser(Long userId, UpdateUserRequestDTO updateUserRequestDTO) {
-        // 1. Buscar usuario
+        String normalizedEmail = normalizeOptionalEmail(updateUserRequestDTO.getEmail());
+        String normalizedUserName = normalizeRequiredValue(updateUserRequestDTO.getUserName());
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // 2. Validar email único (si cambia)
-        if (updateUserRequestDTO.getEmail() == null || updateUserRequestDTO.getEmail().isBlank()) {
-            throw new RuntimeException("Email is required");
+        if (!java.util.Objects.equals(user.getUserName(), normalizedUserName)
+                && userRepository.existsByUserName(normalizedUserName)) {
+            throw new RuntimeException("Username already exists");
         }
 
-        if (!java.util.Objects.equals(user.getEmail(), updateUserRequestDTO.getEmail())
-                && userRepository.existsByEmail(updateUserRequestDTO.getEmail())) {
+        if (normalizedEmail != null
+                && !java.util.Objects.equals(user.getEmail(), normalizedEmail)
+                && userRepository.existsByEmail(normalizedEmail)) {
             throw new RuntimeException("Email already exists");
         }
 
-        // 3. Rol
         Role role = roleRepository.findById(updateUserRequestDTO.getRoleId())
                 .orElseThrow(() -> new RuntimeException("Role not found"));
 
-        // 4. Actualizar datos básicos
         user.setName(updateUserRequestDTO.getName());
         user.setLastName(updateUserRequestDTO.getLastName());
-        user.setEmail(updateUserRequestDTO.getEmail());
+        user.setUserName(normalizedUserName);
+        user.setEmail(normalizedEmail);
         user.setActive(updateUserRequestDTO.getActive());
         user.setRole(role);
 
@@ -146,7 +152,6 @@ public class UserAdminServiceImpl implements UserAdminService {
                 updateUserRequestDTO.getPlantIds()
         );
 
-        // 6. Respuesta para tabla
         return new UserTableDTO(
                 user.getUserId(),
                 user.getName() + " " + user.getLastName(),
@@ -166,9 +171,6 @@ public class UserAdminServiceImpl implements UserAdminService {
         List<Long> companyIds = userCompanyRepository.findCompanyIdsByUserId(userId);
         List<Long> explicitPlantIds = userPlantRepository.findPlantIdsByUserId(userId);
 
-
-        List<Long> plantIdsToReturn = explicitPlantIds;
-
         UserDetailDTO dto = new UserDetailDTO();
         dto.setName(user.getName());
         dto.setLastName(user.getLastName());
@@ -177,7 +179,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         dto.setActive(user.getActive());
         dto.setRoleId(user.getRole().getRoleId());
         dto.setCompanyIds(companyIds);
-        dto.setPlantIds(plantIdsToReturn);
+        dto.setPlantIds(explicitPlantIds);
 
         return dto;
     }
@@ -200,8 +202,17 @@ public class UserAdminServiceImpl implements UserAdminService {
         userCompanyRepository.deleteByUserUserId(userId);
         userRepository.deleteById(userId);
     }
+
+    private String normalizeOptionalEmail(String email) {
+        if (email == null) {
+            return null;
+        }
+
+        String normalized = email.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String normalizeRequiredValue(String value) {
+        return value == null ? null : value.trim();
+    }
 }
-
-
-
-

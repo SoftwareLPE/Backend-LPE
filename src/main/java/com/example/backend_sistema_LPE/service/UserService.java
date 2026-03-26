@@ -18,7 +18,8 @@ public interface UserService {
 
     boolean authenticate(String username, String password);
 
-    java.util.List<com.example.backend_sistema_LPE.dto.UserRecipientDTO> getUsersByRoleName(
+    java.util.List<com.example.backend_sistema_LPE.dto.UserRecipientDTO> getUsersByRole(
+            String roleKey,
             String roleName,
             Boolean active
     );

@@ -41,6 +41,7 @@ public class RoleAdminSummaryServiceImpl implements RoleAdminSummaryService{
 
                     return new RoleSummaryDTO(
                             role.getRoleId(),
+                            role.getRoleKey(),
                             role.getRoleName(),
                             role.getDescription(),
                             permissionsCount

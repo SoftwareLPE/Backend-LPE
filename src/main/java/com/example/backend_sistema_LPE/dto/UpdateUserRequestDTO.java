@@ -1,5 +1,6 @@
 package com.example.backend_sistema_LPE.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,7 +17,6 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 public class UpdateUserRequestDTO {
-    // Datos generales
     @NotBlank
     private String name;
 
@@ -24,21 +24,21 @@ public class UpdateUserRequestDTO {
     private String lastName;
 
     @Email
-    @NotBlank
     private String email;
 
-    // Configuración
+    @NotBlank
+    @JsonAlias("username")
+    private String userName;
+
     @NotNull
     private Boolean active;
 
     @NotNull
     private Long roleId;
 
-    // Asignaciones
     @NotEmpty
     private List<Long> companyIds;
 
     @NotEmpty
     private List<Long> plantIds;
 }
-

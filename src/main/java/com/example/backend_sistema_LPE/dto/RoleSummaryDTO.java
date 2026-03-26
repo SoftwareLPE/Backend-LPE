@@ -7,6 +7,7 @@ import lombok.Getter;
 @AllArgsConstructor
 public class RoleSummaryDTO {
     private Long roleId;
+    private String roleKey;
     private String roleName;
     private String roleDescription;
 

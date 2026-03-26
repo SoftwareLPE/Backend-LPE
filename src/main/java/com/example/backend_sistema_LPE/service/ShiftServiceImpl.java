@@ -6,10 +6,12 @@ import com.example.backend_sistema_LPE.dto.UpdateShiftRequestDTO;
 import com.example.backend_sistema_LPE.enums.ShiftType;
 import com.example.backend_sistema_LPE.model.FormatTurnConfig;
 import com.example.backend_sistema_LPE.model.FormatType;
+import com.example.backend_sistema_LPE.model.FormatTypeTeRule;
 import com.example.backend_sistema_LPE.model.Shift;
 import com.example.backend_sistema_LPE.model.Plant;
 import com.example.backend_sistema_LPE.model.ShiftFormatTurnMap;
 import com.example.backend_sistema_LPE.repository.FormatTurnConfigRepository;
+import com.example.backend_sistema_LPE.repository.FormatTypeTeRuleRepository;
 import com.example.backend_sistema_LPE.repository.FormatTypeRepository;
 import com.example.backend_sistema_LPE.repository.PlantRepository;
 import com.example.backend_sistema_LPE.repository.ShiftRepository;
@@ -31,6 +33,7 @@ public class ShiftServiceImpl implements ShiftService {
     private final PlantRepository plantRepository;
     private final FormatTypeRepository formatTypeRepository;
     private final FormatTurnConfigRepository formatTurnConfigRepository;
+    private final FormatTypeTeRuleRepository formatTypeTeRuleRepository;
     private final ShiftFormatTurnMapRepository shiftFormatTurnMapRepository;
 
     public ShiftServiceImpl(
@@ -38,12 +41,14 @@ public class ShiftServiceImpl implements ShiftService {
             PlantRepository plantRepository,
             FormatTypeRepository formatTypeRepository,
             FormatTurnConfigRepository formatTurnConfigRepository,
+            FormatTypeTeRuleRepository formatTypeTeRuleRepository,
             ShiftFormatTurnMapRepository shiftFormatTurnMapRepository
     ) {
         this.shiftRepository = shiftRepository;
         this.plantRepository = plantRepository;
         this.formatTypeRepository = formatTypeRepository;
         this.formatTurnConfigRepository = formatTurnConfigRepository;
+        this.formatTypeTeRuleRepository = formatTypeTeRuleRepository;
         this.shiftFormatTurnMapRepository = shiftFormatTurnMapRepository;
     }
 
@@ -295,6 +300,8 @@ public class ShiftServiceImpl implements ShiftService {
             config.setSortOrder(resolveSortOrder(normalizedName));
             formatTurnConfigRepository.save(config);
         }
+
+        syncTeTurnConfigs(formatType, normalizedDays);
     }
 
     private void syncShiftMappingsForShift(Plant plant, Shift shift) {
@@ -370,6 +377,8 @@ public class ShiftServiceImpl implements ShiftService {
                     normalizedName
             );
         }
+
+        syncTeTurnConfigs(formatType, normalizedDays);
     }
 
     private void deleteShiftMappings(Plant plant, Long shiftId) {
@@ -524,5 +533,107 @@ public class ShiftServiceImpl implements ShiftService {
             case "TE4" -> 94;
             default -> 99;
         };
+    }
+
+    private void syncTeTurnConfigs(FormatType formatType, java.util.Set<String> dayKeys) {
+        if (formatType == null || dayKeys == null || dayKeys.isEmpty()) {
+            return;
+        }
+
+        for (String dayKey : dayKeys) {
+            syncTeTurnConfigsForDay(formatType, dayKey);
+        }
+    }
+
+    private void syncTeTurnConfigsForDay(FormatType formatType, String dayKey) {
+        if (formatType == null || dayKey == null || dayKey.isBlank()) {
+            return;
+        }
+
+        String normalizedDayKey = dayKey.trim().toLowerCase();
+        List<FormatTurnConfig> dayConfigs = formatTurnConfigRepository
+                .findByFormatTypeFormatTypeIdAndDayOfWeek(formatType.getFormatTypeId(), normalizedDayKey);
+
+        List<FormatTurnConfig> normalConfigs = dayConfigs.stream()
+                .filter(config -> !isTeTurnName(config.getTurnName()))
+                .toList();
+
+        List<FormatTurnConfig> teConfigs = dayConfigs.stream()
+                .filter(config -> isTeTurnName(config.getTurnName()))
+                .toList();
+
+        java.util.Optional<FormatTypeTeRule> teRule = formatTypeTeRuleRepository
+                .findByFormatTypeFormatTypeIdAndDayOfWeek(formatType.getFormatTypeId(), normalizedDayKey);
+
+        if (teRule.isEmpty()) {
+            return;
+        }
+
+        int desiredTeCount = Boolean.TRUE.equals(teRule.get().getActive())
+                ? Math.max(teRule.get().getTeCount(), 0)
+                : 0;
+
+        if (normalConfigs.isEmpty() || desiredTeCount == 0) {
+            if (!teConfigs.isEmpty()) {
+                formatTurnConfigRepository.deleteAll(teConfigs);
+            }
+            return;
+        }
+
+        Map<String, FormatTurnConfig> existingTeByName = new HashMap<>();
+        List<FormatTurnConfig> duplicateTeConfigs = new ArrayList<>();
+        for (FormatTurnConfig teConfig : teConfigs) {
+            String normalizedTeName = normalizeTurnName(teConfig.getTurnName());
+            FormatTurnConfig previous = existingTeByName.putIfAbsent(normalizedTeName, teConfig);
+            if (previous != null) {
+                duplicateTeConfigs.add(teConfig);
+            }
+        }
+
+        Set<String> desiredTeNames = new HashSet<>();
+        int nextSortOrder = normalConfigs.stream()
+                .map(FormatTurnConfig::getSortOrder)
+                .filter(java.util.Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .max()
+                .orElse(0);
+
+        List<FormatTurnConfig> toSave = new ArrayList<>();
+        for (int index = 1; index <= desiredTeCount; index++) {
+            String desiredTeName = "TE" + index;
+            desiredTeNames.add(desiredTeName);
+
+            FormatTurnConfig teConfig = existingTeByName.get(desiredTeName);
+            if (teConfig == null) {
+                teConfig = new FormatTurnConfig();
+                teConfig.setFormatType(formatType);
+                teConfig.setDayOfWeek(normalizedDayKey);
+                teConfig.setTurnName(desiredTeName);
+            }
+
+            teConfig.setSortOrder(++nextSortOrder);
+            toSave.add(teConfig);
+        }
+
+        List<FormatTurnConfig> toDelete = teConfigs.stream()
+                .filter(config -> !desiredTeNames.contains(normalizeTurnName(config.getTurnName())))
+                .toList();
+
+        if (!duplicateTeConfigs.isEmpty()) {
+            List<FormatTurnConfig> mergedDeleteList = new ArrayList<>(toDelete);
+            mergedDeleteList.addAll(duplicateTeConfigs);
+            formatTurnConfigRepository.deleteAll(mergedDeleteList);
+        } else if (!toDelete.isEmpty()) {
+            formatTurnConfigRepository.deleteAll(toDelete);
+        }
+
+        if (!toSave.isEmpty()) {
+            formatTurnConfigRepository.saveAll(toSave);
+        }
+    }
+
+    private boolean isTeTurnName(String turnName) {
+        String normalized = normalizeTurnName(turnName);
+        return normalized.startsWith("TE");
     }
 }

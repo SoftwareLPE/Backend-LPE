@@ -10,6 +10,8 @@ import java.util.List;
 @Getter
 @Setter
 public class UpdateRoleRequestDTO {
+    private String roleKey;
+
     @NotBlank
     private String roleName;
 

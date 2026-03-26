@@ -16,6 +16,8 @@ public class Role {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long roleId;
+    @Column(name = "role_key", unique = true)
+    private String roleKey;
     private String roleName;
     private String description;
 }

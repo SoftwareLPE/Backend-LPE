@@ -24,7 +24,6 @@ public class CreateUserRequestDTO {
     private String lastName;
 
     @Email
-    @NotBlank
     private String email;
 
     // Credenciales

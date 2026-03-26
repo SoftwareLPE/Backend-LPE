@@ -61,11 +61,20 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
-    public java.util.List<com.example.backend_sistema_LPE.dto.UserRecipientDTO> getUsersByRoleName(
+    public java.util.List<com.example.backend_sistema_LPE.dto.UserRecipientDTO> getUsersByRole(
+            String roleKey,
             String roleName,
             Boolean active
     ) {
-        return userRepository.findRecipientsByRoleName(roleName, active);
+        if (roleKey != null && !roleKey.trim().isEmpty()) {
+            return userRepository.findRecipientsByRoleKey(roleKey.trim().toUpperCase(), active);
+        }
+
+        if (roleName != null && !roleName.trim().isEmpty()) {
+            return userRepository.findRecipientsByRoleName(roleName.trim(), active);
+        }
+
+        throw new IllegalArgumentException("roleKey or roleName is required");
     }
 
 

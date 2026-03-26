@@ -38,13 +38,20 @@ public class RoleAdminServiceImpl implements RoleAdminService{
 
     @Transactional
     public RoleDTO createRole(CreateRoleRequestDTO dto) {
+        String normalizedRoleKey = normalizeRoleKey(dto.getRoleKey(), dto.getRoleName());
+        String normalizedRoleName = normalizeRequiredValue(dto.getRoleName());
 
-        if (roleRepository.existsByRoleName(dto.getRoleName())) {
-            throw new RuntimeException("Role already exists: " + dto.getRoleName());
+        if (roleRepository.existsByRoleName(normalizedRoleName)) {
+            throw new RuntimeException("Role already exists: " + normalizedRoleName);
+        }
+
+        if (roleRepository.existsByRoleKey(normalizedRoleKey)) {
+            throw new RuntimeException("Role key already exists: " + normalizedRoleKey);
         }
 
         Role role = new Role();
-        role.setRoleName(dto.getRoleName());
+        role.setRoleKey(normalizedRoleKey);
+        role.setRoleName(normalizedRoleName);
         role.setDescription(dto.getDescription());
         Role savedRole = roleRepository.save(role);
 
@@ -63,28 +70,31 @@ public class RoleAdminServiceImpl implements RoleAdminService{
             rolePermissionRepository.save(rp);
         }
 
-        return new RoleDTO(savedRole.getRoleId(), savedRole.getRoleName(), savedRole.getDescription());
+        return new RoleDTO(savedRole.getRoleId(), savedRole.getRoleKey(), savedRole.getRoleName(), savedRole.getDescription());
     }
 
     @Transactional
     public RoleDTO updateRole(Long roleId, UpdateRoleRequestDTO dto) {
+        String normalizedRoleKey = normalizeRoleKey(dto.getRoleKey(), dto.getRoleName());
+        String normalizedRoleName = normalizeRequiredValue(dto.getRoleName());
 
-        // 1) Buscar rol
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new RuntimeException("Role not found"));
 
-        // 2) Validar roleName  (si cambia)
-        String newName = dto.getRoleName();
-        if (!role.getRoleName().equals(newName) && roleRepository.existsByRoleName(newName)) {
-            throw new RuntimeException("Role name already exists: " + newName);
+        if (!role.getRoleName().equals(normalizedRoleName) && roleRepository.existsByRoleName(normalizedRoleName)) {
+            throw new RuntimeException("Role name already exists: " + normalizedRoleName);
         }
 
-        // 3) Actualizar campos basicos
-        role.setRoleName(newName);
+        if (!java.util.Objects.equals(role.getRoleKey(), normalizedRoleKey)
+                && roleRepository.existsByRoleKey(normalizedRoleKey)) {
+            throw new RuntimeException("Role key already exists: " + normalizedRoleKey);
+        }
+
+        role.setRoleKey(normalizedRoleKey);
+        role.setRoleName(normalizedRoleName);
         role.setDescription(dto.getDescription());
         roleRepository.save(role);
 
-        // 4) Reemplazar permisos (DEDUP)
         rolePermissionRepository.deleteByRoleRoleId(roleId);
         rolePermissionRepository.flush();
 
@@ -107,7 +117,7 @@ public class RoleAdminServiceImpl implements RoleAdminService{
             rolePermissionRepository.save(rp);
         }
 
-        return new RoleDTO(role.getRoleId(), role.getRoleName(), role.getDescription());
+        return new RoleDTO(role.getRoleId(), role.getRoleKey(), role.getRoleName(), role.getDescription());
     }
 
     @Override
@@ -121,6 +131,7 @@ public class RoleAdminServiceImpl implements RoleAdminService{
 
         RoleDetailDTO detail = new RoleDetailDTO();
         detail.setRoleId(role.getRoleId());
+        detail.setRoleKey(role.getRoleKey());
         detail.setRoleName(role.getRoleName());
         detail.setRoleDescription(role.getDescription());
         detail.setPermissionIds(permissionIds);
@@ -131,18 +142,46 @@ public class RoleAdminServiceImpl implements RoleAdminService{
     @Override
     @Transactional
     public void deleteRole(Long roleId) {
-        // 1) Verificar que el rol exista
         if (!roleRepository.existsById(roleId)) {
             throw new RuntimeException("Role not found");
         }
 
-        // 2) Eliminar relaciones (orden importante)
         rolePermissionRepository.deleteByRoleRoleId(roleId);
         rolePlantRepository.deleteByRoleRoleId(roleId);
         roleCompanyRepository.deleteByRoleRoleId(roleId);
 
-        // 3) Eliminar rol
         roleRepository.deleteById(roleId);
+    }
+
+    private String normalizeRoleKey(String roleKey, String roleName) {
+        String source = roleKey;
+        if (source == null || source.trim().isEmpty()) {
+            source = roleName;
+        }
+
+        String normalized = normalizeRequiredValue(source).toUpperCase();
+        normalized = normalized.replaceAll("[^A-Z0-9]+", "_");
+        normalized = normalized.replaceAll("^_+|_+$", "");
+        normalized = normalized.replaceAll("_+", "_");
+
+        if (normalized.isEmpty()) {
+            throw new RuntimeException("Role key is required");
+        }
+
+        return normalized;
+    }
+
+    private String normalizeRequiredValue(String value) {
+        if (value == null) {
+            throw new RuntimeException("Required value is missing");
+        }
+
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            throw new RuntimeException("Required value is missing");
+        }
+
+        return normalized;
     }
 }
 

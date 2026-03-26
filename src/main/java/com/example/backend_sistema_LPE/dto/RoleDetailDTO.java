@@ -8,6 +8,7 @@ import java.util.List;
 @Setter
 public class RoleDetailDTO {
     private Long roleId;
+    private String roleKey;
     private String roleName;
     private String roleDescription;
 

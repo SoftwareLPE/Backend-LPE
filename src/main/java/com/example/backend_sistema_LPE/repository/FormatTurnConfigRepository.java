@@ -11,6 +11,8 @@ import java.util.Optional;
 public interface FormatTurnConfigRepository extends JpaRepository<FormatTurnConfig, Long> {
     List<FormatTurnConfig> findByFormatTypeFormatTypeId(Long formatTypeId);
 
+    List<FormatTurnConfig> findByFormatTypeFormatTypeIdAndDayOfWeek(Long formatTypeId, String dayOfWeek);
+
     Optional<FormatTurnConfig> findByFormatTypeFormatTypeIdAndDayOfWeekAndTurnName(
             Long formatTypeId,
             String dayOfWeek,
