@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.List;
 import java.util.Map;
 
 @Getter
@@ -15,4 +16,5 @@ public class FormatWeekTotalsDTO {
     private Map<String, Map<Long, Integer>> byDayAndTurn;
     private Map<String, Integer> byDay;
     private Integer weekTotal;
+    private List<FormatWeekUnitTypeSummaryDTO> unitTypeSummary;
 }

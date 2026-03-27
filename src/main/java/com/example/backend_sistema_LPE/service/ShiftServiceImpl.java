@@ -63,7 +63,7 @@ public class ShiftServiceImpl implements ShiftService {
     @Transactional
     public ShiftDTO createShift(Long plantId, CreateShiftRequestDTO request) {
         validateRequest(request);
-        Plant plant = plantRepository.findById(plantId)
+        Plant plant = lockPlant(plantId)
                 .orElseThrow(() -> new RuntimeException("Plant not found " + plantId));
 
         Shift existingShift = findExistingShiftByNormalizedName(plantId, request.getShiftName());
@@ -131,6 +131,8 @@ public class ShiftServiceImpl implements ShiftService {
     @Override
     @Transactional
     public ShiftDTO updateShift(Long plantId, Long shiftId, UpdateShiftRequestDTO request) {
+        Plant plant = lockPlant(plantId)
+                .orElseThrow(() -> new RuntimeException("Plant not found " + plantId));
         Shift shift = shiftRepository.findByShiftIdAndPlantPlantId(shiftId, plantId)
                 .orElseThrow(() -> new RuntimeException("Shift not found " + shiftId));
 
@@ -186,7 +188,7 @@ public class ShiftServiceImpl implements ShiftService {
 
         Shift saved = shiftRepository.save(shift);
         syncTurnConfigForUpdate(
-                saved.getPlant(),
+                plant,
                 oldShiftName,
                 oldDayKeys,
                 oldShiftType,
@@ -198,17 +200,19 @@ public class ShiftServiceImpl implements ShiftService {
                 saved.getLongWeekDayKeys(),
                 saved.getShortWeekDayKeys()
         );
-        syncShiftMappingsForShift(saved.getPlant(), saved);
+        syncShiftMappingsForShift(plant, saved);
         return toDTO(saved);
     }
 
     @Override
     @Transactional
     public void deleteShift(Long plantId, Long shiftId) {
+        Plant plant = lockPlant(plantId)
+                .orElseThrow(() -> new RuntimeException("Plant not found " + plantId));
         Shift shift = shiftRepository.findByShiftIdAndPlantPlantId(shiftId, plantId)
                 .orElseThrow(() -> new RuntimeException("Shift not found " + shiftId));
-        deleteShiftMappings(shift.getPlant(), shift.getShiftId());
-        deleteTurnConfigForShift(shift.getPlant(), shift.getShiftName(), effectiveDayKeys(shift));
+        deleteShiftMappings(plant, shift.getShiftId());
+        deleteTurnConfigForShift(plant, shift.getShiftName(), effectiveDayKeys(shift));
         shiftRepository.delete(shift);
     }
 
@@ -399,6 +403,10 @@ public class ShiftServiceImpl implements ShiftService {
             return null;
         }
         return formatTypeRepository.findById(formatTypeId).orElse(null);
+    }
+
+    private java.util.Optional<Plant> lockPlant(Long plantId) {
+        return plantRepository.findByIdForUpdate(plantId);
     }
 
     private java.util.Set<String> normalizeDayKeys(java.util.Set<String> dayKeys) {
