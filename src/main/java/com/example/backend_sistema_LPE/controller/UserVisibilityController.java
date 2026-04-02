@@ -1,12 +1,9 @@
 package com.example.backend_sistema_LPE.controller;
 
 import com.example.backend_sistema_LPE.dto.CompanyDetailDTO;
-import com.example.backend_sistema_LPE.mapper.CompanyMapper;
-import com.example.backend_sistema_LPE.model.Company;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
 import com.example.backend_sistema_LPE.service.CompanyVisibilityService;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,8 +25,6 @@ public class UserVisibilityController {
 
         UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
         System.out.println("JWT userId=" + principal.getUserId() + " auth=" + principal.getAuthorities());
-        return companyVisibilityService.getMyCompanies(principal).stream()
-                .map(CompanyMapper::toDetailDTO)
-                .toList();
+        return companyVisibilityService.getMyCompanies(principal);
     }
 }
