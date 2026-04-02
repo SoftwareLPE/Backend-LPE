@@ -115,7 +115,7 @@ public class UserAdminServiceImpl implements UserAdminService {
     public UserTableDTO updateUser(Long userId, UpdateUserRequestDTO updateUserRequestDTO) {
         String normalizedEmail = normalizeOptionalEmail(updateUserRequestDTO.getEmail());
         String normalizedUserName = normalizeRequiredValue(updateUserRequestDTO.getUserName());
-        String normalizedPassword = normalizeOptionalPassword(updateUserRequestDTO.getPassword());
+        String normalizedPassword = resolveUpdatedPassword(updateUserRequestDTO);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -227,5 +227,13 @@ public class UserAdminServiceImpl implements UserAdminService {
 
         String normalized = password.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String resolveUpdatedPassword(UpdateUserRequestDTO request) {
+        String normalizedUserPassword = normalizeOptionalPassword(request.getUserPassword());
+        if (normalizedUserPassword != null) {
+            return normalizedUserPassword;
+        }
+        return normalizeOptionalPassword(request.getPassword());
     }
 }

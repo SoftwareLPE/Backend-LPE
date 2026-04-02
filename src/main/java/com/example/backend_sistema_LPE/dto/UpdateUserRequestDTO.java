@@ -30,8 +30,9 @@ public class UpdateUserRequestDTO {
     @JsonAlias("username")
     private String userName;
 
-    @JsonAlias("userPassword")
     private String password;
+
+    private String userPassword;
 
     @NotNull
     private Boolean active;
