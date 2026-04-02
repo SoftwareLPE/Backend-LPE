@@ -29,6 +29,7 @@ import com.example.backend_sistema_LPE.model.User;
 import com.example.backend_sistema_LPE.enums.CascadaType;
 import com.example.backend_sistema_LPE.repository.DriverRepository;
 import com.example.backend_sistema_LPE.repository.DriverPlantAssignmentRepository;
+import com.example.backend_sistema_LPE.repository.FormatCatalogRepository;
 import com.example.backend_sistema_LPE.repository.FormatTurnConfigRepository;
 import com.example.backend_sistema_LPE.repository.FormatTypeRepository;
 import com.example.backend_sistema_LPE.repository.FormatWeekRepository;
@@ -60,6 +61,7 @@ import java.util.stream.Collectors;
 public class FormatWeekServiceImpl implements FormatWeekService {
     private final FormatWeekRepository formatWeekRepository;
     private final FormatTypeRepository formatTypeRepository;
+    private final FormatCatalogRepository formatCatalogRepository;
     private final FormatTurnConfigRepository formatTurnConfigRepository;
     private final FormatWeekManualRowRepository formatWeekManualRowRepository;
     private final FormatWeekTotalsSnapshotRepository formatWeekTotalsSnapshotRepository;
@@ -76,6 +78,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     public FormatWeekServiceImpl(
             FormatWeekRepository formatWeekRepository,
             FormatTypeRepository formatTypeRepository,
+            FormatCatalogRepository formatCatalogRepository,
             FormatTurnConfigRepository formatTurnConfigRepository,
             FormatWeekManualRowRepository formatWeekManualRowRepository,
             FormatWeekTotalsSnapshotRepository formatWeekTotalsSnapshotRepository,
@@ -91,6 +94,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     ) {
         this.formatWeekRepository = formatWeekRepository;
         this.formatTypeRepository = formatTypeRepository;
+        this.formatCatalogRepository = formatCatalogRepository;
         this.formatTurnConfigRepository = formatTurnConfigRepository;
         this.formatWeekManualRowRepository = formatWeekManualRowRepository;
         this.formatWeekTotalsSnapshotRepository = formatWeekTotalsSnapshotRepository;
@@ -128,6 +132,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 .collect(Collectors.toMap(FormatTurnConfig::getTurnConfigId, config -> config));
         FormatType formatType = formatTypeRepository.findById(formatTypeId)
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
+        String formatCode = resolveFormatCode(formatType);
         WeekMetadataResolver.ResolvedWeekMetadata responseWeekMetadata = weeks.isEmpty()
                 ? WeekMetadataResolver.resolve(weekDate, null, null, null)
                 : WeekMetadataResolver.resolve(
@@ -145,7 +150,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         if (shiftId == null) {
             List<FormatWeekRowDTO> rows = new ArrayList<>(savedRows);
             enrichRowTotals(rows);
-            FormatWeekTotalsDTO totals = buildTotals(rows, turnConfigs, formatType);
+            FormatWeekTotalsDTO totals = buildTotals(rows, turnConfigs, formatCode);
             applyPersistedTotals(totals, findTotalsSnapshot(plantId, formatTypeId, weekDate, null).orElse(null));
             return new FormatWeekResponseDTO(
                     plantId,
@@ -155,6 +160,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                     responseWeekMetadata.getWeekNumber(),
                     shiftId,
                     formatTypeId,
+                    formatCode,
                     rows,
                     totals
             );
@@ -189,7 +195,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         }
 
         enrichRowTotals(rows);
-        FormatWeekTotalsDTO totals = buildTotals(rows, turnConfigs, formatType);
+        FormatWeekTotalsDTO totals = buildTotals(rows, turnConfigs, formatCode);
         applyPersistedTotals(totals, findTotalsSnapshot(plantId, formatTypeId, weekDate, shiftId).orElse(null));
         return new FormatWeekResponseDTO(
                 plantId,
@@ -199,6 +205,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 responseWeekMetadata.getWeekNumber(),
                 shiftId,
                 formatTypeId,
+                formatCode,
                 rows,
                 totals
         );
@@ -237,6 +244,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 .orElseThrow(() -> new RuntimeException("Shift not found"));
         FormatType formatType = formatTypeRepository.findById(request.getFormatTypeId())
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
+        String formatCode = resolveFormatCode(formatType);
 
         List<FormatTurnConfig> allTurnConfigs = formatTurnConfigRepository
                 .findByFormatTypeFormatTypeId(request.getFormatTypeId())
@@ -347,7 +355,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             persistedWeeks.add(formatWeekRepository.save(week));
         }
 
-        saveTotalsSnapshot(plant, formatType, shift, request.getWeekDate(), persistedWeeks, userId);
+        saveTotalsSnapshot(plant, formatType, formatCode, shift, request.getWeekDate(), persistedWeeks, userId);
     }
 
     @Override
@@ -1224,7 +1232,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     private FormatWeekTotalsDTO buildTotals(
             List<FormatWeekRowDTO> rows,
             List<FormatTurnConfig> turnConfigs,
-            FormatType formatType
+            String formatCode
     ) {
         Map<String, Map<Long, Integer>> byDayAndTurn = new LinkedHashMap<>();
         Map<String, Integer> byDay = new LinkedHashMap<>();
@@ -1257,7 +1265,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                     rowTotal += tripCount;
                 }
 
-                if (supportsUnitTypeSummary(formatType)) {
+                if (supportsUnitTypeSummary(formatCode)) {
                     addStringCount(unitTypeTotals, row.getUnitType(), rowTotal);
                 }
             }
@@ -1271,10 +1279,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         );
     }
 
-    private boolean supportsUnitTypeSummary(FormatType formatType) {
-        return formatType != null
-                && formatType.getName() != null
-                && formatType.getName().trim().equalsIgnoreCase("BOSCH_JUP2");
+    private boolean supportsUnitTypeSummary(String formatCode) {
+        return formatCode != null
+                && formatCode.trim().equalsIgnoreCase("BOSCH_JUP2");
     }
 
     private List<FormatWeekUnitTypeSummaryDTO> toUnitTypeSummary(Map<String, Integer> unitTypeTotals) {
@@ -1332,12 +1339,13 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     private void saveTotalsSnapshot(
             Plant plant,
             FormatType formatType,
+            String formatCode,
             Shift shift,
             LocalDate weekDate,
             List<FormatWeek> persistedWeeks,
             Long userId
     ) {
-        if (!supportsUnitTypeSummary(formatType)) {
+        if (!supportsUnitTypeSummary(formatCode)) {
             return;
         }
 
@@ -1355,6 +1363,15 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         snapshot.setUpdatedAt(LocalDateTime.now());
         snapshot.setUpdatedByUserId(userId);
         formatWeekTotalsSnapshotRepository.save(snapshot);
+    }
+
+    private String resolveFormatCode(FormatType formatType) {
+        if (formatType == null || formatType.getFormatCatalogId() == null) {
+            return null;
+        }
+        return formatCatalogRepository.findById(formatType.getFormatCatalogId())
+                .map(formatCatalog -> trimToNull(formatCatalog.getFormatCode()))
+                .orElse(null);
     }
 
     private Map<String, Integer> buildPersistedUnitTypeTotals(List<FormatWeek> persistedWeeks) {

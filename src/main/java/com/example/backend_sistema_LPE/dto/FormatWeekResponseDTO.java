@@ -24,6 +24,7 @@ public class FormatWeekResponseDTO {
     private Integer weekNumber;
     private Long shiftId;
     private Long formatTypeId;
+    private String formatCode;
     private List<FormatWeekRowDTO> rows;
     private FormatWeekTotalsDTO totals;
 }
