@@ -237,7 +237,7 @@ public class CascadaPdfService {
             Map<String, Map<Long, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
 
             for (DriverViewDTO driver : drivers) {
-                table.addCell(bodyCell(driver.getDriverId() == null ? "" : String.valueOf(driver.getDriverId()), cellFont));
+                table.addCell(bodyCell("", cellFont));
                 table.addCell(driverCell(resolveDriverDisplayName(driver, byDay), cellFont));
                 int driverNormal = 0;
                 int driverExtra = 0;
