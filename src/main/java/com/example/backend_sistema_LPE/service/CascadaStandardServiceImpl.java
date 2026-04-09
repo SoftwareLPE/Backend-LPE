@@ -704,7 +704,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
             if (latest.getSentByUserId() != null) {
                 User user = userRepository.findById(latest.getSentByUserId()).orElse(null);
                 if (user != null) {
-                    sentBy = user.getUserName();
+                    sentBy = UserDisplayNameResolver.resolve(user);
                 }
             }
 

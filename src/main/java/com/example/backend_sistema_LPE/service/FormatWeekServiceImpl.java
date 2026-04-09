@@ -703,7 +703,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             if (sentById != null) {
                 User user = userRepository.findById(sentById).orElse(null);
                 if (user != null) {
-                    sentBy = user.getUserName();
+                    sentBy = UserDisplayNameResolver.resolve(user);
                 }
             }
 

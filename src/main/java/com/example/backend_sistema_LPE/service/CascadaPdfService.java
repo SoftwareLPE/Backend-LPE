@@ -82,12 +82,6 @@ public class CascadaPdfService {
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
 
         Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift = buildRowsMap(weekResponse.getItems());
-        Map<Long, String> driverNames = drivers.stream()
-                .collect(Collectors.toMap(
-                        DriverViewDTO::getDriverId,
-                        d -> formatDriverName(d.getDriverName(), d.getLastName()),
-                        (a, b) -> a
-                ));
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Document document = new Document(PageSize.A4.rotate(), 20, 20, 20, 20);
@@ -235,8 +229,9 @@ public class CascadaPdfService {
             int totalExtraSum = 0;
 
             Map<String, Map<Long, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
+            List<DriverViewDTO> shiftDrivers = driversForShift(drivers, shift, byDay);
 
-            for (DriverViewDTO driver : drivers) {
+            for (DriverViewDTO driver : shiftDrivers) {
                 table.addCell(bodyCell("", cellFont));
                 table.addCell(driverCell(resolveDriverDisplayName(driver, byDay), cellFont));
                 int driverNormal = 0;
@@ -588,7 +583,38 @@ public class CascadaPdfService {
         }
 
         User user = userRepository.findById(sentByUserId).orElse(null);
-        return user == null || user.getUserName() == null ? "" : user.getUserName().toUpperCase(Locale.ROOT);
+        String displayName = UserDisplayNameResolver.resolve(user);
+        return displayName.isBlank() ? "" : displayName.toUpperCase(Locale.ROOT);
+    }
+
+    private List<DriverViewDTO> driversForShift(
+            List<DriverViewDTO> drivers,
+            ShiftDTO shift,
+            Map<String, Map<Long, CascadaRowDTO>> byDay
+    ) {
+        Long shiftId = shift == null ? null : shift.getShiftId();
+        return drivers.stream()
+                .filter(driver -> belongsToShift(driver, shiftId) || hasRowsForShift(driver, byDay))
+                .collect(Collectors.toList());
+    }
+
+    private boolean belongsToShift(DriverViewDTO driver, Long shiftId) {
+        if (driver == null || shiftId == null || driver.getShiftIds() == null) {
+            return false;
+        }
+        return driver.getShiftIds().contains(shiftId);
+    }
+
+    private boolean hasRowsForShift(DriverViewDTO driver, Map<String, Map<Long, CascadaRowDTO>> byDay) {
+        if (driver == null || driver.getDriverId() == null || byDay == null || byDay.isEmpty()) {
+            return false;
+        }
+        for (Map<Long, CascadaRowDTO> dayRows : byDay.values()) {
+            if (dayRows.containsKey(driver.getDriverId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String resolveDriverDisplayName(

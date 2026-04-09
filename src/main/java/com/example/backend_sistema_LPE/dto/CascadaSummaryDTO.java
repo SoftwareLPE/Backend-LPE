@@ -18,7 +18,7 @@ public class CascadaSummaryDTO {
     private String plantName;
     private Long companyId;
     private String companyName;
-    // Username who sent the cascada
+    // Display name of the user who sent the cascada
     private String sentBy;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate weekDate;

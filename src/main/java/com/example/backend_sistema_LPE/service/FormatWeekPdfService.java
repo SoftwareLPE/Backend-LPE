@@ -721,8 +721,11 @@ public class FormatWeekPdfService {
         Long sentById = latest.getSentByUserId() != null ? latest.getSentByUserId() : latest.getUpdatedByUserId();
         if (sentById != null) {
             User user = userRepository.findById(sentById).orElse(null);
-            if (user != null && user.getUserName() != null) {
-                coordinatorName = user.getUserName().toUpperCase(Locale.ROOT);
+            if (user != null) {
+                String displayName = UserDisplayNameResolver.resolve(user);
+                if (!displayName.isBlank()) {
+                    coordinatorName = displayName.toUpperCase(Locale.ROOT);
+                }
             }
         }
 
