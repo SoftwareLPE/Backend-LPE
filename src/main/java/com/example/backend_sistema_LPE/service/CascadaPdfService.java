@@ -81,7 +81,7 @@ public class CascadaPdfService {
         Plant plant = plantRepository.findById(plantId)
                 .orElseThrow(() -> new RuntimeException("Plant not found"));
 
-        Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift = buildRowsMap(weekResponse.getItems());
+        Map<Long, Map<String, Map<String, CascadaRowDTO>>> rowsByShift = buildRowsMap(weekResponse.getItems());
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Document document = new Document(PageSize.A4.rotate(), 20, 20, 20, 20);
@@ -164,7 +164,7 @@ public class CascadaPdfService {
             Document document,
             List<ShiftDTO> shifts,
             List<DriverViewDTO> drivers,
-            Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift
+            Map<Long, Map<String, Map<String, CascadaRowDTO>>> rowsByShift
     ) {
         Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7);
         Font cellFont = FontFactory.getFont(FontFactory.HELVETICA, 7);
@@ -228,46 +228,35 @@ public class CascadaPdfService {
             int totalNormalSum = 0;
             int totalExtraSum = 0;
 
-            Map<String, Map<Long, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
+            Map<String, Map<String, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
             List<DriverViewDTO> shiftDrivers = driversForShift(drivers, shift, byDay);
 
             for (DriverViewDTO driver : shiftDrivers) {
-                table.addCell(bodyCell("", cellFont));
-                table.addCell(driverCell(resolveDriverDisplayName(driver, byDay), cellFont));
-                int driverNormal = 0;
-                int driverExtra = 0;
-                for (String dayKey : orderedDays) {
-                    CascadaRowDTO row = byDay.getOrDefault(dayKey, Map.of()).get(driver.getDriverId());
-                    String e = row != null ? row.getE() : "";
-                    String s = row != null ? row.getS() : "";
-                    String ete = row != null ? row.getEte() : "";
-                    String ste = row != null ? row.getSte() : "";
-                    table.addCell(bodyCell(e, cellFont));
-                    table.addCell(bodyCell(s, cellFont));
-                    table.addCell(bodyCell(ete, cellFont));
-                    table.addCell(bodyCell(ste, cellFont));
-                    int[] totals = totalsByDay.get(dayKey);
-                    if (isFilled(e)) {
-                        totals[0] += 1;
-                        driverNormal += 1;
-                    }
-                    if (isFilled(s)) {
-                        totals[1] += 1;
-                        driverNormal += 1;
-                    }
-                    if (isFilled(ete)) {
-                        totals[2] += 1;
-                        driverExtra += 1;
-                    }
-                    if (isFilled(ste)) {
-                        totals[3] += 1;
-                        driverExtra += 1;
-                    }
-                }
-                totalNormalSum += driverNormal;
-                totalExtraSum += driverExtra;
-                table.addCell(bodyCell(String.valueOf(driverNormal), cellFont));
-                table.addCell(bodyCell(String.valueOf(driverExtra), cellFont));
+                int[] rowTotals = addTripRow(
+                        table,
+                        orderedDays,
+                        byDay,
+                        rowKeyForDriver(driver.getDriverId()),
+                        resolveDriverDisplayName(driver, byDay),
+                        cellFont,
+                        totalsByDay
+                );
+                totalNormalSum += rowTotals[0];
+                totalExtraSum += rowTotals[1];
+            }
+
+            for (CascadaRowDTO manualRow : manualRowsForShift(byDay)) {
+                int[] rowTotals = addTripRow(
+                        table,
+                        orderedDays,
+                        byDay,
+                        rowKey(manualRow),
+                        resolveManualDisplayName(manualRow),
+                        cellFont,
+                        totalsByDay
+                );
+                totalNormalSum += rowTotals[0];
+                totalExtraSum += rowTotals[1];
             }
 
             PdfPCell totalLabel = headerCell("Total", headerFont);
@@ -291,7 +280,7 @@ public class CascadaPdfService {
     private void addWeeklyTotalsTable(
             Document document,
             List<ShiftDTO> shifts,
-            Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift
+            Map<Long, Map<String, Map<String, CascadaRowDTO>>> rowsByShift
     ) {
         Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8);
         List<String> orderedDays = orderDays(Set.of("lun", "mar", "mie", "jue", "vie", "sab", "dom"));
@@ -303,7 +292,7 @@ public class CascadaPdfService {
         int totalNormal = 0;
         int totalExtra = 0;
         for (ShiftDTO shift : shifts) {
-            Map<String, Map<Long, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
+            Map<String, Map<String, CascadaRowDTO>> byDay = rowsByShift.getOrDefault(shift.getShiftId(), Map.of());
             for (String dayKey : orderedDays) {
                 for (CascadaRowDTO row : byDay.getOrDefault(dayKey, Map.of()).values()) {
                     if (isFilled(row.getE())) {
@@ -351,22 +340,36 @@ public class CascadaPdfService {
             Document document,
             List<ShiftDTO> shifts,
             List<DriverViewDTO> drivers,
-            Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift
+            Map<Long, Map<String, Map<String, CascadaRowDTO>>> rowsByShift
     ) {
         Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7);
         Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7);
         Font cellFont = FontFactory.getFont(FontFactory.HELVETICA, 7);
 
         Map<Long, DriverTotals> driverTotals = new HashMap<>();
+        Map<Long, String> driverDisplayNames = new HashMap<>();
+        Map<String, DriverTotals> manualRowTotals = new LinkedHashMap<>();
+        Map<String, String> manualRowNames = new LinkedHashMap<>();
         Map<String, Integer> routeTotals = new HashMap<>();
         int totalNormal = 0;
         int totalExtra = 0;
 
         for (var shiftEntry : rowsByShift.entrySet()) {
-            Map<String, Map<Long, CascadaRowDTO>> byDay = shiftEntry.getValue();
+            Map<String, Map<String, CascadaRowDTO>> byDay = shiftEntry.getValue();
             for (var dayEntry : byDay.entrySet()) {
                 for (CascadaRowDTO row : dayEntry.getValue().values()) {
-                    DriverTotals totals = driverTotals.computeIfAbsent(row.getDriverId(), k -> new DriverTotals());
+                    DriverTotals totals;
+                    if (row.getDriverId() == null) {
+                        String manualKey = rowKey(row);
+                        totals = manualRowTotals.computeIfAbsent(manualKey, k -> new DriverTotals());
+                        manualRowNames.putIfAbsent(manualKey, resolveManualDisplayName(row));
+                    } else {
+                        totals = driverTotals.computeIfAbsent(row.getDriverId(), k -> new DriverTotals());
+                        String override = trimToNull(row.getDriverNameOverride());
+                        if (override != null) {
+                            driverDisplayNames.putIfAbsent(row.getDriverId(), override);
+                        }
+                    }
                     totalNormal += countNormal(row, totals);
                     totalExtra += countExtra(row, totals);
 
@@ -398,7 +401,22 @@ public class CascadaPdfService {
         int extraSum = 0;
         for (DriverViewDTO driver : sortedDrivers) {
             DriverTotals totals = driverTotals.getOrDefault(driver.getDriverId(), new DriverTotals());
-            summaryTable.addCell(bodyCell(formatDriverName(driver.getDriverName(), driver.getLastName()), cellFont));
+            String displayName = driverDisplayNames.getOrDefault(
+                    driver.getDriverId(),
+                    formatDriverName(driver.getDriverName(), driver.getLastName())
+            );
+            summaryTable.addCell(bodyCell(displayName, cellFont));
+            summaryTable.addCell(bodyCell(String.valueOf(totals.normal), cellFont));
+            summaryTable.addCell(bodyCell(String.valueOf(totals.extra), cellFont));
+            summaryTable.addCell(bodyCell(String.valueOf(totals.normal + totals.extra), cellFont));
+            normalSum += totals.normal;
+            extraSum += totals.extra;
+        }
+        List<Map.Entry<String, DriverTotals>> sortedManualRows = new ArrayList<>(manualRowTotals.entrySet());
+        sortedManualRows.sort(Comparator.comparing(entry -> manualRowNames.getOrDefault(entry.getKey(), "")));
+        for (Map.Entry<String, DriverTotals> manualEntry : sortedManualRows) {
+            DriverTotals totals = manualEntry.getValue();
+            summaryTable.addCell(bodyCell(manualRowNames.getOrDefault(manualEntry.getKey(), ""), cellFont));
             summaryTable.addCell(bodyCell(String.valueOf(totals.normal), cellFont));
             summaryTable.addCell(bodyCell(String.valueOf(totals.extra), cellFont));
             summaryTable.addCell(bodyCell(String.valueOf(totals.normal + totals.extra), cellFont));
@@ -467,15 +485,15 @@ public class CascadaPdfService {
         document.add(summaryContainer);
     }
 
-    private Map<Long, Map<String, Map<Long, CascadaRowDTO>>> buildRowsMap(List<CascadaWeekItemDTO> items) {
-        Map<Long, Map<String, Map<Long, CascadaRowDTO>>> rowsByShift = new HashMap<>();
+    private Map<Long, Map<String, Map<String, CascadaRowDTO>>> buildRowsMap(List<CascadaWeekItemDTO> items) {
+        Map<Long, Map<String, Map<String, CascadaRowDTO>>> rowsByShift = new HashMap<>();
         for (CascadaWeekItemDTO item : items) {
             rowsByShift
                     .computeIfAbsent(item.getShiftId(), k -> new HashMap<>())
                     .computeIfAbsent(item.getDayKey(), k -> new HashMap<>());
-            Map<Long, CascadaRowDTO> byDriver = rowsByShift.get(item.getShiftId()).get(item.getDayKey());
+            Map<String, CascadaRowDTO> byRow = rowsByShift.get(item.getShiftId()).get(item.getDayKey());
             for (CascadaRowDTO row : item.getRows()) {
-                byDriver.put(row.getDriverId(), row);
+                byRow.put(rowKey(row), row);
             }
         }
         return rowsByShift;
@@ -590,7 +608,7 @@ public class CascadaPdfService {
     private List<DriverViewDTO> driversForShift(
             List<DriverViewDTO> drivers,
             ShiftDTO shift,
-            Map<String, Map<Long, CascadaRowDTO>> byDay
+            Map<String, Map<String, CascadaRowDTO>> byDay
     ) {
         Long shiftId = shift == null ? null : shift.getShiftId();
         return drivers.stream()
@@ -605,27 +623,113 @@ public class CascadaPdfService {
         return driver.getShiftIds().contains(shiftId);
     }
 
-    private boolean hasRowsForShift(DriverViewDTO driver, Map<String, Map<Long, CascadaRowDTO>> byDay) {
+    private boolean hasRowsForShift(DriverViewDTO driver, Map<String, Map<String, CascadaRowDTO>> byDay) {
         if (driver == null || driver.getDriverId() == null || byDay == null || byDay.isEmpty()) {
             return false;
         }
-        for (Map<Long, CascadaRowDTO> dayRows : byDay.values()) {
-            if (dayRows.containsKey(driver.getDriverId())) {
+        String driverRowKey = rowKeyForDriver(driver.getDriverId());
+        for (Map<String, CascadaRowDTO> dayRows : byDay.values()) {
+            if (dayRows.containsKey(driverRowKey)) {
                 return true;
             }
         }
         return false;
     }
 
+    private int[] addTripRow(
+            PdfPTable table,
+            List<String> orderedDays,
+            Map<String, Map<String, CascadaRowDTO>> byDay,
+            String rowKey,
+            String displayName,
+            Font cellFont,
+            Map<String, int[]> totalsByDay
+    ) {
+        table.addCell(bodyCell("", cellFont));
+        table.addCell(driverCell(displayName, cellFont));
+        int normal = 0;
+        int extra = 0;
+        for (String dayKey : orderedDays) {
+            CascadaRowDTO row = byDay.getOrDefault(dayKey, Map.of()).get(rowKey);
+            String e = row != null ? row.getE() : "";
+            String s = row != null ? row.getS() : "";
+            String ete = row != null ? row.getEte() : "";
+            String ste = row != null ? row.getSte() : "";
+            table.addCell(bodyCell(e, cellFont));
+            table.addCell(bodyCell(s, cellFont));
+            table.addCell(bodyCell(ete, cellFont));
+            table.addCell(bodyCell(ste, cellFont));
+            int[] totals = totalsByDay.get(dayKey);
+            if (isFilled(e)) {
+                totals[0] += 1;
+                normal += 1;
+            }
+            if (isFilled(s)) {
+                totals[1] += 1;
+                normal += 1;
+            }
+            if (isFilled(ete)) {
+                totals[2] += 1;
+                extra += 1;
+            }
+            if (isFilled(ste)) {
+                totals[3] += 1;
+                extra += 1;
+            }
+        }
+        table.addCell(bodyCell(String.valueOf(normal), cellFont));
+        table.addCell(bodyCell(String.valueOf(extra), cellFont));
+        return new int[]{normal, extra};
+    }
+
+    private List<CascadaRowDTO> manualRowsForShift(Map<String, Map<String, CascadaRowDTO>> byDay) {
+        if (byDay == null || byDay.isEmpty()) {
+            return List.of();
+        }
+        Map<String, CascadaRowDTO> rowsByKey = new LinkedHashMap<>();
+        for (Map<String, CascadaRowDTO> dayRows : byDay.values()) {
+            for (CascadaRowDTO row : dayRows.values()) {
+                if (isManualPdfRow(row)) {
+                    rowsByKey.putIfAbsent(rowKey(row), row);
+                }
+            }
+        }
+        return new ArrayList<>(rowsByKey.values());
+    }
+
+    private boolean isManualPdfRow(CascadaRowDTO row) {
+        return row != null && (row.getManualStandardRowId() != null || row.getDriverId() == null);
+    }
+
+    private String rowKey(CascadaRowDTO row) {
+        if (row == null) {
+            return "NULL";
+        }
+        if (row.getManualStandardRowId() != null) {
+            return "M:" + row.getManualStandardRowId();
+        }
+        if (row.getDriverId() != null) {
+            return rowKeyForDriver(row.getDriverId());
+        }
+        return "U:" + normalizeKey(row.getDriverNameOverride())
+                + "|R:" + row.getRouteId()
+                + "|N:" + normalizeKey(row.getRouteName());
+    }
+
+    private String rowKeyForDriver(Long driverId) {
+        return "D:" + driverId;
+    }
+
     private String resolveDriverDisplayName(
             DriverViewDTO driver,
-            Map<String, Map<Long, CascadaRowDTO>> byDay
+            Map<String, Map<String, CascadaRowDTO>> byDay
     ) {
         if (byDay == null || byDay.isEmpty()) {
             return formatDriverName(driver.getDriverName(), driver.getLastName());
         }
-        for (Map<Long, CascadaRowDTO> dayRows : byDay.values()) {
-            CascadaRowDTO row = dayRows.get(driver.getDriverId());
+        String driverRowKey = rowKeyForDriver(driver.getDriverId());
+        for (Map<String, CascadaRowDTO> dayRows : byDay.values()) {
+            CascadaRowDTO row = dayRows.get(driverRowKey);
             if (row == null) {
                 continue;
             }
@@ -635,6 +739,32 @@ public class CascadaPdfService {
             }
         }
         return formatDriverName(driver.getDriverName(), driver.getLastName());
+    }
+
+    private String resolveManualDisplayName(CascadaRowDTO row) {
+        String override = trimToNull(row == null ? null : row.getDriverNameOverride());
+        if (override != null) {
+            return override;
+        }
+        String name = row == null ? "" : formatDriverName(row.getDriverName(), row.getLastName());
+        if (!name.isBlank()) {
+            return name;
+        }
+        String routeName = trimToNull(row == null ? null : row.getRouteName());
+        return routeName == null ? "" : routeName;
+    }
+
+    private String normalizeKey(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? "" : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     private float[] buildShiftTableWidths(int dayCount, int extraColumns) {
