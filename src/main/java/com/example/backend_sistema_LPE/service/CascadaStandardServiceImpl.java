@@ -207,6 +207,9 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                         request.getShiftId()
                 )
                 .orElse(null);
+        SentStatusPreserver.Metadata preservedStatus = week != null && week.getStatus() == CascadaStatus.SENT
+                ? new SentStatusPreserver.Metadata(CascadaStatus.SENT, week.getSentAt(), week.getSentByUserId())
+                : SentStatusPreserver.Metadata.draft();
 
         LocalDateTime now = LocalDateTime.now();
         if (week == null) {
@@ -218,12 +221,11 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         week.setWeekStartDate(request.getWeekStartDate());
         week.setWeekEndDate(request.getWeekEndDate());
         week.setWeekNumber(request.getWeekNumber());
-
-        week.setStatus(CascadaStatus.DRAFT);
+        week.setStatus(preservedStatus.status());
         week.setUpdatedAt(now);
         week.setUpdatedByUserId(null);
-        week.setSentAt(null);
-        week.setSentByUserId(null);
+        week.setSentAt(preservedStatus.sentAt());
+        week.setSentByUserId(preservedStatus.sentByUserId());
         week = weekRepository.save(week);
 
         List<CascadaStandardManualRow> manualRows = saveManualRows(request, plant, now, usesNewFlow);
@@ -257,8 +259,9 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                 if (manualRow != null) {
                     cell.setManualRow(manualRow);
                     cell.setRouteId(manualRow.getRouteId());
-                    cell.setDriverNameOverride(normalizeValue(
-                            row.getDriverNameOverride() == null ? manualRow.getDriverNameOverride() : row.getDriverNameOverride()
+                    cell.setDriverNameOverride(resolveCellDriverNameOverride(
+                            row.getDriverNameOverride(),
+                            manualRow.getDriverNameOverride()
                     ));
                 } else {
                     if (row.getDriverId() == null) {
@@ -266,7 +269,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                     }
                     cell.setDriver(driversById.get(row.getDriverId()));
                     cell.setRouteId(row.getRouteId());
-                    cell.setDriverNameOverride(normalizeValue(row.getDriverNameOverride()));
+                    cell.setDriverNameOverride(resolveCellDriverNameOverride(row.getDriverNameOverride(), null));
                 }
                 cell.setE(normalizeValue(row.getE()));
                 cell.setS(normalizeValue(row.getS()));
@@ -745,7 +748,7 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         row.setS(cell.getS());
         row.setEte(cell.getEte());
         row.setSte(cell.getSte());
-        row.setDriverNameOverride(cell.getDriverNameOverride());
+        row.setDriverNameOverride(normalizeValue(trimToNull(cell.getDriverNameOverride())));
         return row;
     }
 
@@ -919,11 +922,19 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
         if (base.getRouteName() == null && saved.getRouteName() != null) {
             base.setRouteName(saved.getRouteName());
         }
-        base.setDriverNameOverride(normalizeValue(saved.getDriverNameOverride()));
+        base.setDriverNameOverride(normalizeValue(trimToNull(saved.getDriverNameOverride())));
         base.setE(normalizeValue(saved.getE()));
         base.setS(normalizeValue(saved.getS()));
         base.setEte(normalizeValue(saved.getEte()));
         base.setSte(normalizeValue(saved.getSte()));
+    }
+
+    private String resolveCellDriverNameOverride(String requestedOverride, String fallbackOverride) {
+        String normalizedRequested = trimToNull(requestedOverride);
+        if (normalizedRequested != null) {
+            return normalizedRequested;
+        }
+        return normalizeValue(trimToNull(fallbackOverride));
     }
 
     private List<CascadaStandardManualRowDTO> toManualRowDTOs(List<CascadaStandardManualRow> manualRows) {

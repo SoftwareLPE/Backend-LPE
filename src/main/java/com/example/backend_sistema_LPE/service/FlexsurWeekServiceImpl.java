@@ -178,6 +178,17 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                 request.getWeekDate(),
                 request.getShiftId()
         );
+        List<FlexsurWeek> existingWeeks = flexsurWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftId(
+                request.getPlantId(),
+                request.getWeekDate(),
+                request.getShiftId()
+        );
+        SentStatusPreserver.Metadata preservedStatus = SentStatusPreserver.from(
+                existingWeeks,
+                FlexsurWeek::getStatus,
+                FlexsurWeek::getSentAt,
+                FlexsurWeek::getSentByUserId
+        );
 
         deleteWeeks(request.getPlantId(), request.getWeekDate(), request.getShiftId());
         deleteTotalsSnapshot(request.getPlantId(), request.getWeekDate(), request.getShiftId());
@@ -200,7 +211,9 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
             week.setShift(shift);
             week.setManualRow(manualRow);
             week.setServiceName(serviceName);
-            week.setStatus(CascadaStatus.DRAFT);
+            week.setStatus(preservedStatus.status());
+            week.setSentAt(preservedStatus.sentAt());
+            week.setSentByUserId(preservedStatus.sentByUserId());
 
             LocalDateTime now = LocalDateTime.now();
             week.setUpdatedAt(now);

@@ -167,6 +167,12 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                 request.getPlantId(),
                 request.getWeekDate()
         );
+        SentStatusPreserver.Metadata preservedStatus = SentStatusPreserver.from(
+                existingWeeks,
+                RegalWeek::getStatus,
+                RegalWeek::getSentAt,
+                RegalWeek::getSentByUserId
+        );
         if (!existingWeeks.isEmpty()) {
             regalWeekRepository.deleteAll(existingWeeks);
             regalWeekRepository.flush();
@@ -179,7 +185,9 @@ public class RegalWeekServiceImpl implements RegalWeekService {
             week.setPlant(plant);
             week.setShift(null);
             week.setWeekDate(request.getWeekDate());
-            week.setStatus(CascadaStatus.DRAFT);
+            week.setStatus(preservedStatus.status());
+            week.setSentAt(preservedStatus.sentAt());
+            week.setSentByUserId(preservedStatus.sentByUserId());
 
             RegalManualRow manualRow = resolveManualRow(row, manualRows);
             if (isManualRow(row) && manualRow == null) {

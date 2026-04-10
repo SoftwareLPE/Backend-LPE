@@ -269,6 +269,12 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 requestedWeekDate,
                 request.getShiftId()
         );
+        SentStatusPreserver.Metadata preservedStatus = SentStatusPreserver.from(
+                existingWeeks,
+                FormatWeek::getStatus,
+                FormatWeek::getSentAt,
+                FormatWeek::getSentByUserId
+        );
         deleteTotalsSnapshot(request.getPlantId(), request.getFormatTypeId(), requestedWeekDate, request.getShiftId());
         if (!existingWeeks.isEmpty()) {
             formatWeekRepository.deleteAll(existingWeeks);
@@ -286,7 +292,9 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             week.setWeekStartDate(request.getWeekStartDate());
             week.setWeekEndDate(request.getWeekEndDate());
             week.setWeekNumber(request.getWeekNumber());
-            week.setStatus(CascadaStatus.DRAFT);
+            week.setStatus(preservedStatus.status());
+            week.setSentAt(preservedStatus.sentAt());
+            week.setSentByUserId(preservedStatus.sentByUserId());
 
             FormatWeekManualRow manualRow = resolveManualRow(row, persistedManualRows);
             if (isManualRow(row) && manualRow == null) {

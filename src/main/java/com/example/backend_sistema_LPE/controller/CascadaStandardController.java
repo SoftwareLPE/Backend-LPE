@@ -37,9 +37,8 @@ public class CascadaStandardController {
             @RequestParam(required = false) String dayKey,
             @RequestParam(required = false) String status
     ) {
-        return ResponseEntity.ok(
-                cascadaStandardService.getCascada(plantId, weekDate, shiftId, dayKey, status)
-        );
+        return ResponseEntity.ok( cascadaStandardService.getCascada(plantId, weekDate, shiftId, dayKey, status) );
+
     }
 
     @PutMapping
