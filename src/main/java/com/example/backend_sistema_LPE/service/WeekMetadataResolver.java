@@ -20,17 +20,67 @@ final class WeekMetadataResolver {
         }
 
         LocalDate derivedWeekStart = weekDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        return resolveAgainstWeekStart(
+                weekDate,
+                weekStartDate,
+                weekEndDate,
+                weekNumber,
+                derivedWeekStart,
+                "weekStartDate must be the Monday for weekDate",
+                "weekEndDate must be the Sunday for weekDate",
+                "weekNumber must match the ISO week for weekDate"
+        );
+    }
+
+    static ResolvedWeekMetadata resolvePreviousWeek(
+            LocalDate weekDate,
+            LocalDate weekStartDate,
+            LocalDate weekEndDate,
+            Integer weekNumber
+    ) {
+        if (weekDate == null) {
+            throw new RuntimeException("weekDate is required");
+        }
+
+        LocalDate currentWeekStart = weekDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate derivedWeekStart = currentWeekStart.minusWeeks(1);
+        return resolveAgainstWeekStart(
+                weekDate,
+                weekStartDate,
+                weekEndDate,
+                weekNumber,
+                derivedWeekStart,
+                "weekStartDate must be the Monday for the week before weekDate",
+                "weekEndDate must be the Sunday for the week before weekDate",
+                "weekNumber must match the ISO week before weekDate"
+        );
+    }
+
+    private static ResolvedWeekMetadata resolveAgainstWeekStart(
+            LocalDate weekDate,
+            LocalDate weekStartDate,
+            LocalDate weekEndDate,
+            Integer weekNumber,
+            LocalDate derivedWeekStart,
+            String weekStartDateError,
+            String weekEndDateError,
+            String weekNumberError
+    ) {
+        if (weekDate == null) {
+            throw new RuntimeException("weekDate is required");
+        }
+
         LocalDate derivedWeekEnd = derivedWeekStart.plusDays(6);
-        int derivedWeekNumber = weekDate.get(WeekFields.ISO.weekOfWeekBasedYear());
+        int derivedWeekNumber = derivedWeekStart.get(WeekFields.ISO.weekOfWeekBasedYear());
 
         if (weekStartDate != null && !weekStartDate.equals(derivedWeekStart)) {
-            throw new RuntimeException("weekStartDate must be the Monday for weekDate");
+            throw new RuntimeException(weekStartDateError);
         }
         if (weekEndDate != null && !weekEndDate.equals(derivedWeekEnd)) {
-            throw new RuntimeException("weekEndDate must be the Sunday for weekDate");
+            throw new RuntimeException(weekEndDateError);
         }
         if (weekNumber != null && weekNumber != derivedWeekNumber) {
-            throw new RuntimeException("weekNumber must match the ISO week for weekDate");
+            throw new RuntimeException(weekNumberError);
         }
 
         return new ResolvedWeekMetadata(

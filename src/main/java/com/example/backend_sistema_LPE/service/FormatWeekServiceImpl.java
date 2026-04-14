@@ -134,13 +134,8 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
         String formatCode = resolveFormatCode(formatType);
         WeekMetadataResolver.ResolvedWeekMetadata responseWeekMetadata = weeks.isEmpty()
-                ? WeekMetadataResolver.resolve(weekDate, null, null, null)
-                : WeekMetadataResolver.resolve(
-                        weekDate,
-                        weeks.get(0).getWeekStartDate(),
-                        weeks.get(0).getWeekEndDate(),
-                        weeks.get(0).getWeekNumber()
-                );
+                ? WeekMetadataResolver.resolvePreviousWeek(weekDate, null, null, null)
+                : resolveStoredWeekMetadata(weeks.get(0));
 
         List<FormatWeekRowDTO> savedRows = weeks.stream()
                 .map(this::toRowDTO)
@@ -171,12 +166,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                 findFormatWeeksByRequestedWeek(plantId, formatTypeId, weekDate, null),
                 usesDriver
         );
-        List<FormatWeekManualRow> manualRows = formatWeekManualRowRepository
-                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
-                        plantId,
-                        formatTypeId,
-                        weekDate
-                );
+        List<FormatWeekManualRow> manualRows = findManualRowsByRequestedWeek(plantId, formatTypeId, weekDate);
 
         savedRows.forEach(row -> applyWeeklyBaseOverrides(row, weeklyOverrideRows.get(rowKey(row, usesDriver))));
         List<FormatWeekRowDTO> rows = new ArrayList<>(savedRows);
@@ -226,14 +216,13 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         if (request.getFormatTypeId() == null) {
             throw new RuntimeException("formatTypeId is required");
         }
-        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolvePreviousWeek(
                 request.getWeekDate(),
-                request.getWeekStartDate(),
-                request.getWeekEndDate(),
-                request.getWeekNumber()
+                null,
+                null,
+                null
         );
         LocalDate requestedWeekDate = request.getWeekDate();
-        request.setWeekDate(weekMetadata.getWeekStartDate());
         request.setWeekStartDate(weekMetadata.getWeekStartDate());
         request.setWeekEndDate(weekMetadata.getWeekEndDate());
         request.setWeekNumber(weekMetadata.getWeekNumber());
@@ -388,12 +377,11 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             throw new RuntimeException("formatTypeId does not belong to plant");
         }
 
-        List<FormatWeekManualRow> existing = formatWeekManualRowRepository
-                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
-                        request.getPlantId(),
-                        request.getFormatTypeId(),
-                        request.getWeekDate()
-                );
+        List<FormatWeekManualRow> existing = findManualRowsByRequestedWeek(
+                request.getPlantId(),
+                request.getFormatTypeId(),
+                request.getWeekDate()
+        );
 
         int nextSortOrder = existing.stream()
                 .map(FormatWeekManualRow::getSortOrder)
@@ -537,11 +525,11 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             throw new RuntimeException("status must be SENT or DELETED");
         }
 
-        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolvePreviousWeek(
                 weekDate,
-                weekStartDate,
-                weekEndDate,
-                weekNumber
+                null,
+                null,
+                null
         );
 
         List<FormatWeek> weeks = findFormatWeeksByRequestedWeek(plantId, formatTypeId, weekDate, shiftId);
@@ -635,7 +623,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
         LocalDate effectiveRequestedWeekStartDate = weekDate == null
                 ? null
-                : WeekMetadataResolver.resolve(weekDate, null, null, null).getWeekStartDate();
+                : WeekMetadataResolver.resolvePreviousWeek(weekDate, null, null, null).getWeekStartDate();
 
         List<FormatWeek> weeks;
         if (plantId != null) {
@@ -645,9 +633,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         }
 
         if (effectiveRequestedWeekStartDate != null) {
-            weeks = weeks.stream()
-                    .filter(week -> resolveWeekStartDate(week).equals(effectiveRequestedWeekStartDate))
-                    .toList();
+            weeks = filterFormatWeeksByRequestedDate(weeks, weekDate);
         }
 
         if (recipientUserId != null) {
@@ -723,7 +709,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                     latest.getPlant().getCompany().getCompanyId(),
                     latest.getPlant().getCompany().getCompanyName(),
                     sentBy,
-                    effectiveWeekStartDate,
+                    latest.getWeekDate() != null ? latest.getWeekDate() : effectiveWeekStartDate.plusWeeks(1),
                     effectiveWeekStartDate,
                     resolveWeekEndDate(latest),
                     resolveWeekNumber(latest),
@@ -1307,36 +1293,24 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             LocalDate requestedWeekDate,
             Long shiftId
     ) {
-        LocalDate effectiveWeekStartDate = WeekMetadataResolver.resolve(requestedWeekDate, null, null, null).getWeekStartDate();
-        java.util.Optional<FormatWeekTotalsSnapshot> snapshot = shiftId == null
-                ? formatWeekTotalsSnapshotRepository.findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateAndShiftIsNull(
-                        plantId,
-                        formatTypeId,
-                        effectiveWeekStartDate
-                )
-                : formatWeekTotalsSnapshotRepository.findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateAndShiftShiftId(
-                        plantId,
-                        formatTypeId,
-                        effectiveWeekStartDate,
-                        shiftId
-                );
-
-        if (snapshot.isPresent() || requestedWeekDate.equals(effectiveWeekStartDate)) {
-            return snapshot;
+        for (LocalDate candidateWeekStart : weekStartCandidatesForRequestedDate(requestedWeekDate)) {
+            java.util.Optional<FormatWeekTotalsSnapshot> snapshot = shiftId == null
+                    ? formatWeekTotalsSnapshotRepository.findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateAndShiftIsNull(
+                            plantId,
+                            formatTypeId,
+                            candidateWeekStart
+                    )
+                    : formatWeekTotalsSnapshotRepository.findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateAndShiftShiftId(
+                            plantId,
+                            formatTypeId,
+                            candidateWeekStart,
+                            shiftId
+                    );
+            if (snapshot.isPresent()) {
+                return snapshot;
+            }
         }
-
-        return shiftId == null
-                ? formatWeekTotalsSnapshotRepository.findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateAndShiftIsNull(
-                        plantId,
-                        formatTypeId,
-                        requestedWeekDate
-                )
-                : formatWeekTotalsSnapshotRepository.findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateAndShiftShiftId(
-                        plantId,
-                        formatTypeId,
-                        requestedWeekDate,
-                        shiftId
-                );
+        return java.util.Optional.empty();
     }
 
     private void deleteTotalsSnapshot(Long plantId, Long formatTypeId, LocalDate weekDate, Long shiftId) {
@@ -1424,12 +1398,11 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             FormatType formatType,
             Long userId
     ) {
-        List<FormatWeekManualRow> existing = new ArrayList<>(formatWeekManualRowRepository
-                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
-                        request.getPlantId(),
-                        request.getFormatTypeId(),
-                        request.getWeekDate()
-                ));
+        List<FormatWeekManualRow> existing = new ArrayList<>(findManualRowsByRequestedWeek(
+                request.getPlantId(),
+                request.getFormatTypeId(),
+                request.getWeekDate()
+        ));
 
         boolean explicitManualRows = request.getManualRows() != null;
         List<FormatWeekManualRowDTO> requestedManualRows = request.getManualRows();
@@ -1495,12 +1468,11 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             }
         }
 
-        return formatWeekManualRowRepository
-                .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
-                        request.getPlantId(),
-                        request.getFormatTypeId(),
-                        request.getWeekDate()
-                );
+        return findManualRowsByRequestedWeek(
+                request.getPlantId(),
+                request.getFormatTypeId(),
+                request.getWeekDate()
+        );
     }
 
     private List<FormatWeekManualRowDTO> inferManualRowsFromShiftPayload(List<FormatWeekRowDTO> rows) {
@@ -1624,67 +1596,111 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         return "custom-" + plantId + "-" + weekDate;
     }
 
+    private List<FormatWeek> filterFormatWeeksByRequestedDate(
+            List<FormatWeek> weeks,
+            LocalDate requestedWeekDate
+    ) {
+        for (LocalDate candidateWeekStart : weekStartCandidatesForRequestedDate(requestedWeekDate)) {
+            List<FormatWeek> filteredWeeks = weeks.stream()
+                    .filter(week -> candidateWeekStart.equals(resolveWeekStartDate(week)))
+                    .toList();
+            if (!filteredWeeks.isEmpty()) {
+                return filteredWeeks;
+            }
+        }
+        return List.of();
+    }
+
+    private List<FormatWeekManualRow> findManualRowsByRequestedWeek(
+            Long plantId,
+            Long formatTypeId,
+            LocalDate requestedWeekDate
+    ) {
+        for (LocalDate candidateWeekDate : weekStartCandidatesForRequestedDate(requestedWeekDate)) {
+            List<FormatWeekManualRow> manualRows = formatWeekManualRowRepository
+                    .findByPlantPlantIdAndFormatTypeFormatTypeIdAndWeekDateOrderBySortOrderAscManualRowIdAsc(
+                            plantId,
+                            formatTypeId,
+                            candidateWeekDate
+                    );
+            if (!manualRows.isEmpty()) {
+                return manualRows;
+            }
+        }
+        return List.of();
+    }
+
     private List<FormatWeek> findFormatWeeksByRequestedWeek(
             Long plantId,
             Long formatTypeId,
             LocalDate requestedWeekDate,
             Long shiftId
     ) {
-        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
-                requestedWeekDate,
-                null,
-                null,
-                null
-        );
-        LocalDate effectiveWeekStartDate = weekMetadata.getWeekStartDate();
-
-        List<FormatWeek> weeks = shiftId == null
-                ? formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
-                        plantId,
-                        effectiveWeekStartDate,
-                        formatTypeId
-                )
-                : formatWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
-                        plantId,
-                        effectiveWeekStartDate,
-                        shiftId,
-                        formatTypeId
-                );
-
-        if (!weeks.isEmpty() || requestedWeekDate.equals(effectiveWeekStartDate)) {
-            return weeks;
+        for (LocalDate candidateWeekStart : weekStartCandidatesForRequestedDate(requestedWeekDate)) {
+            List<FormatWeek> weeks = shiftId == null
+                    ? formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
+                            plantId,
+                            candidateWeekStart,
+                            formatTypeId
+                    )
+                    : formatWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
+                            plantId,
+                            candidateWeekStart,
+                            shiftId,
+                            formatTypeId
+                    );
+            if (!weeks.isEmpty()) {
+                return weeks;
+            }
         }
+        return List.of();
+    }
 
-        return shiftId == null
-                ? formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
-                        plantId,
-                        requestedWeekDate,
-                        formatTypeId
-                )
-                : formatWeekRepository.findByPlantPlantIdAndWeekDateAndShiftShiftIdAndFormatTypeFormatTypeId(
-                        plantId,
-                        requestedWeekDate,
-                        shiftId,
-                        formatTypeId
-                );
+    private List<LocalDate> weekStartCandidatesForRequestedDate(LocalDate requestedWeekDate) {
+        List<LocalDate> candidates = new ArrayList<>();
+        addWeekStartCandidate(candidates, requestedWeekDate);
+        addWeekStartCandidate(
+                candidates,
+                WeekMetadataResolver.resolve(requestedWeekDate, null, null, null).getWeekStartDate()
+        );
+        addWeekStartCandidate(
+                candidates,
+                WeekMetadataResolver.resolvePreviousWeek(requestedWeekDate, null, null, null).getWeekStartDate()
+        );
+        return candidates;
+    }
+
+    private void addWeekStartCandidate(List<LocalDate> candidates, LocalDate candidate) {
+        if (candidate != null && !candidates.contains(candidate)) {
+            candidates.add(candidate);
+        }
     }
 
     private LocalDate resolveWeekStartDate(FormatWeek week) {
         return week.getWeekStartDate() != null
                 ? week.getWeekStartDate()
-                : WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekStartDate();
+                : WeekMetadataResolver.resolvePreviousWeek(week.getWeekDate(), null, null, null).getWeekStartDate();
+    }
+
+    private WeekMetadataResolver.ResolvedWeekMetadata resolveStoredWeekMetadata(FormatWeek week) {
+        LocalDate weekStartDate = resolveWeekStartDate(week);
+        LocalDate weekEndDate = week.getWeekEndDate() != null ? week.getWeekEndDate() : weekStartDate.plusDays(6);
+        int weekNumber = week.getWeekNumber() != null
+                ? week.getWeekNumber()
+                : WeekMetadataResolver.resolve(weekStartDate, weekStartDate, null, null).getWeekNumber();
+        return WeekMetadataResolver.resolve(weekStartDate, weekStartDate, weekEndDate, weekNumber);
     }
 
     private LocalDate resolveWeekEndDate(FormatWeek week) {
         return week.getWeekEndDate() != null
                 ? week.getWeekEndDate()
-                : WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekEndDate();
+                : WeekMetadataResolver.resolvePreviousWeek(week.getWeekDate(), null, null, null).getWeekEndDate();
     }
 
     private Integer resolveWeekNumber(FormatWeek week) {
         return week.getWeekNumber() != null
                 ? week.getWeekNumber()
-                : WeekMetadataResolver.resolve(week.getWeekDate(), null, null, null).getWeekNumber();
+                : WeekMetadataResolver.resolvePreviousWeek(week.getWeekDate(), null, null, null).getWeekNumber();
     }
 
     private Set<String> orderDayKeys(Set<String> dayKeys) {

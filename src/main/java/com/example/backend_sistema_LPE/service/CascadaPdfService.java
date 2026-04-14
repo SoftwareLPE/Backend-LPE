@@ -64,7 +64,7 @@ public class CascadaPdfService {
     }
 
     public byte[] buildWeeklyPdf(Long plantId, LocalDate weekDate, String status, Boolean activeDrivers) {
-        WeekMetadataResolver.ResolvedWeekMetadata requestedWeekMetadata = WeekMetadataResolver.resolve(
+        WeekMetadataResolver.ResolvedWeekMetadata requestedWeekMetadata = WeekMetadataResolver.resolvePreviousWeek(
                 weekDate,
                 null,
                 null,
@@ -72,7 +72,7 @@ public class CascadaPdfService {
         );
         CascadaWeekResponseDTO weekResponse = cascadaStandardService.getWeekCascadas(
                 plantId,
-                requestedWeekMetadata.getWeekStartDate(),
+                weekDate,
                 status
         );
         List<ShiftDTO> shifts = shiftService.getShiftsByPlant(plantId);

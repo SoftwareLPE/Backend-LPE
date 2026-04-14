@@ -678,7 +678,7 @@ public class FormatWeekPdfService {
 
     private HeaderMetadata resolveHeaderMetadata(Plant plant, LocalDate weekDate) {
         if (plant == null || plant.getPlantId() == null || plant.getFormatTypeId() == null || weekDate == null) {
-            WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(weekDate, null, null, null);
+            WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolvePreviousWeek(weekDate, null, null, null);
             return new HeaderMetadata(
                     weekMetadata.getWeekStartDate(),
                     weekMetadata.getWeekEndDate(),
@@ -687,13 +687,9 @@ public class FormatWeekPdfService {
             );
         }
 
-        List<FormatWeek> weeks = formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
-                plant.getPlantId(),
-                weekDate,
-                plant.getFormatTypeId()
-        );
+        List<FormatWeek> weeks = findFormatWeeksForRequestedDate(plant, weekDate);
         if (weeks == null || weeks.isEmpty()) {
-            WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(weekDate, null, null, null);
+            WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolvePreviousWeek(weekDate, null, null, null);
             return new HeaderMetadata(
                     weekMetadata.getWeekStartDate(),
                     weekMetadata.getWeekEndDate(),
@@ -710,12 +706,7 @@ public class FormatWeekPdfService {
                         .max(Comparator.comparing(FormatWeek::getUpdatedAt))
                         .orElse(weeks.get(0)));
 
-        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = WeekMetadataResolver.resolve(
-                latest.getWeekDate(),
-                latest.getWeekStartDate(),
-                latest.getWeekEndDate(),
-                latest.getWeekNumber()
-        );
+        WeekMetadataResolver.ResolvedWeekMetadata weekMetadata = resolveStoredWeekMetadata(latest);
 
         String coordinatorName = "";
         Long sentById = latest.getSentByUserId() != null ? latest.getSentByUserId() : latest.getUpdatedByUserId();
@@ -735,6 +726,51 @@ public class FormatWeekPdfService {
                 weekMetadata.getWeekNumber(),
                 coordinatorName
         );
+    }
+
+    private List<FormatWeek> findFormatWeeksForRequestedDate(Plant plant, LocalDate requestedWeekDate) {
+        for (LocalDate candidateWeekStart : weekStartCandidatesForRequestedDate(requestedWeekDate)) {
+            List<FormatWeek> weeks = formatWeekRepository.findByPlantPlantIdAndWeekDateAndFormatTypeFormatTypeId(
+                    plant.getPlantId(),
+                    candidateWeekStart,
+                    plant.getFormatTypeId()
+            );
+            if (weeks != null && !weeks.isEmpty()) {
+                return weeks;
+            }
+        }
+        return List.of();
+    }
+
+    private WeekMetadataResolver.ResolvedWeekMetadata resolveStoredWeekMetadata(FormatWeek week) {
+        LocalDate weekStartDate = week.getWeekStartDate() != null
+                ? week.getWeekStartDate()
+                : WeekMetadataResolver.resolvePreviousWeek(week.getWeekDate(), null, null, null).getWeekStartDate();
+        LocalDate weekEndDate = week.getWeekEndDate() != null ? week.getWeekEndDate() : weekStartDate.plusDays(6);
+        int weekNumber = week.getWeekNumber() != null
+                ? week.getWeekNumber()
+                : WeekMetadataResolver.resolve(weekStartDate, weekStartDate, null, null).getWeekNumber();
+        return WeekMetadataResolver.resolve(weekStartDate, weekStartDate, weekEndDate, weekNumber);
+    }
+
+    private List<LocalDate> weekStartCandidatesForRequestedDate(LocalDate requestedWeekDate) {
+        List<LocalDate> candidates = new ArrayList<>();
+        addWeekStartCandidate(candidates, requestedWeekDate);
+        addWeekStartCandidate(
+                candidates,
+                WeekMetadataResolver.resolve(requestedWeekDate, null, null, null).getWeekStartDate()
+        );
+        addWeekStartCandidate(
+                candidates,
+                WeekMetadataResolver.resolvePreviousWeek(requestedWeekDate, null, null, null).getWeekStartDate()
+        );
+        return candidates;
+    }
+
+    private void addWeekStartCandidate(List<LocalDate> candidates, LocalDate candidate) {
+        if (candidate != null && !candidates.contains(candidate)) {
+            candidates.add(candidate);
+        }
     }
 
     private String formatWeekRange(LocalDate weekStartDate, LocalDate weekEndDate) {
