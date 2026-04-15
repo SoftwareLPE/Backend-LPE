@@ -507,7 +507,8 @@ public class RegalWeekServiceImpl implements RegalWeekService {
                     resolveWeekNumber(latest),
                     shiftIds,
                     orderedDayKeySet(dayKeys),
-                    latest.getSentAt()
+                    latest.getSentAt(),
+                    latest.getUpdatedAt()
             ));
         }
 

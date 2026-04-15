@@ -514,7 +514,8 @@ public class FlexsurWeekServiceImpl implements FlexsurWeekService {
                     resolveWeekNumber(latest),
                     shiftIds,
                     orderDayKeys(dayKeys),
-                    latest.getSentAt()
+                    latest.getSentAt(),
+                    latest.getUpdatedAt()
             ));
         }
 

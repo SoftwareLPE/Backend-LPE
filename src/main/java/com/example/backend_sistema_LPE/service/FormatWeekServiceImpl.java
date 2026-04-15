@@ -715,7 +715,8 @@ public class FormatWeekServiceImpl implements FormatWeekService {
                     resolveWeekNumber(latest),
                     shiftIds,
                     orderDayKeys(dayKeys),
-                    latest.getSentAt() != null ? latest.getSentAt() : latest.getUpdatedAt()
+                    latest.getSentAt(),
+                    latest.getUpdatedAt()
             ));
         }
 

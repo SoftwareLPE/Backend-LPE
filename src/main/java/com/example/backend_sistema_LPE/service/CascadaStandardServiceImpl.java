@@ -715,7 +715,8 @@ public class CascadaStandardServiceImpl implements CascadaStandardService {
                             : WeekMetadataResolver.resolve(latest.getWeekStartDate(), latest.getWeekStartDate(), null, null).getWeekNumber(),
                     shiftIds,
                     orderDayKeys(dayKeys),
-                    latest.getSentAt()
+                    latest.getSentAt(),
+                    latest.getUpdatedAt()
             ));
         }
 
