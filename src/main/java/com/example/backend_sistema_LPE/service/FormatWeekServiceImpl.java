@@ -110,6 +110,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public FormatWeekResponseDTO getFormatWeek(Long plantId, Long formatTypeId, LocalDate weekDate, Long shiftId) {
         if (plantId == null) {
             throw new RuntimeException("plantId is required");
@@ -144,6 +145,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
 
         if (shiftId == null) {
             List<FormatWeekRowDTO> rows = new ArrayList<>(savedRows);
+            completeRowsWithConfiguredCells(rows, turnConfigs);
             enrichRowTotals(rows);
             FormatWeekTotalsDTO totals = buildTotals(rows, turnConfigs, formatCode);
             applyPersistedTotals(totals, findTotalsSnapshot(plantId, formatTypeId, weekDate, null).orElse(null));
@@ -184,6 +186,7 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             }
         }
 
+        completeRowsWithConfiguredCells(rows, turnConfigs);
         enrichRowTotals(rows);
         FormatWeekTotalsDTO totals = buildTotals(rows, turnConfigs, formatCode);
         applyPersistedTotals(totals, findTotalsSnapshot(plantId, formatTypeId, weekDate, shiftId).orElse(null));
@@ -761,10 +764,11 @@ public class FormatWeekServiceImpl implements FormatWeekService {
         List<FormatWeekCellDTO> cells = week.getCells() == null
                 ? List.of()
                 : week.getCells().stream()
+                        .filter(cell -> cell.getTurnConfig() != null)
                         .map(cell -> new FormatWeekCellDTO(
                                 cell.getTurnConfig().getTurnConfigId(),
-                                cell.getDayOfWeek(),
-                                cell.getTripCount()
+                                cell.getTurnConfig().getDayOfWeek(),
+                                cell.getTripCount() == null ? 0 : cell.getTripCount()
                         ))
                         .toList();
 
@@ -909,6 +913,63 @@ public class FormatWeekServiceImpl implements FormatWeekService {
             ));
         }
         return cells;
+    }
+
+    private void completeRowsWithConfiguredCells(
+            List<FormatWeekRowDTO> rows,
+            List<FormatTurnConfig> turnConfigs
+    ) {
+        if (rows == null || rows.isEmpty() || turnConfigs == null || turnConfigs.isEmpty()) {
+            return;
+        }
+
+        Map<Long, FormatTurnConfig> configById = turnConfigs.stream()
+                .collect(Collectors.toMap(
+                        FormatTurnConfig::getTurnConfigId,
+                        config -> config,
+                        (a, b) -> a,
+                        LinkedHashMap::new
+                ));
+
+        for (FormatWeekRowDTO row : rows) {
+            Map<Long, FormatWeekCellDTO> cellsByTurnConfigId = row.getCells() == null
+                    ? new LinkedHashMap<>()
+                    : row.getCells().stream()
+                            .filter(cell -> cell.getTurnConfigId() != null)
+                            .filter(cell -> configById.containsKey(cell.getTurnConfigId()))
+                            .collect(Collectors.toMap(
+                                    FormatWeekCellDTO::getTurnConfigId,
+                                    cell -> cell,
+                                    (a, b) -> a,
+                                    LinkedHashMap::new
+                            ));
+
+            for (FormatTurnConfig config : turnConfigs) {
+                cellsByTurnConfigId.computeIfAbsent(
+                        config.getTurnConfigId(),
+                        id -> new FormatWeekCellDTO(
+                                config.getTurnConfigId(),
+                                config.getDayOfWeek(),
+                                0
+                        )
+                );
+            }
+
+            List<FormatWeekCellDTO> normalizedCells = new ArrayList<>();
+            for (FormatTurnConfig config : turnConfigs) {
+                FormatWeekCellDTO cell = cellsByTurnConfigId.get(config.getTurnConfigId());
+                if (cell == null) {
+                    continue;
+                }
+                cell.setDayOfWeek(config.getDayOfWeek());
+                if (cell.getTripCount() == null) {
+                    cell.setTripCount(0);
+                }
+                normalizedCells.add(cell);
+            }
+
+            row.setCells(normalizedCells);
+        }
     }
 
     private List<FormatWeekRowDTO> buildManualRows(

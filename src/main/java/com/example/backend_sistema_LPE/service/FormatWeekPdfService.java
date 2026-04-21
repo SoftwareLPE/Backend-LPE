@@ -80,6 +80,8 @@ public class FormatWeekPdfService {
         FormatType formatType = formatTypeRepository.findById(plant.getFormatTypeId())
                 .orElseThrow(() -> new RuntimeException("Format type not found"));
 
+        Color primaryColor = resolveCustomPrimaryColor(plant);
+
         FormatWeekSchemaDTO schema = formatWeekService.getFormatWeekSchema(plant.getFormatTypeId());
         Map<String, List<FormatWeekTurnDTO>> turnConfigsByDay = schema.getDays() == null
                 ? Map.of()
@@ -93,7 +95,7 @@ public class FormatWeekPdfService {
         document.open();
 
         HeaderMetadata headerMetadata = resolveHeaderMetadata(plant, weekDate);
-        addHeader(document, plant, headerMetadata);
+        addHeader(document, plant, headerMetadata, primaryColor);
 
         List<FormatWeekRowDTO> allRows = new ArrayList<>();
         for (ShiftDTO shift : shifts) {
@@ -108,13 +110,13 @@ public class FormatWeekPdfService {
             }
         }
         List<FormatWeekRowDTO> mergedRows = mergeRows(allRows, schema.getBaseColumns());
-        addWeeklyTable(document, schema, mergedRows, turnConfigsByDay);
+        addWeeklyTable(document, schema, mergedRows, turnConfigsByDay, primaryColor);
 
         document.close();
         return outputStream.toByteArray();
     }
 
-    private void addHeader(Document document, Plant plant, HeaderMetadata headerMetadata) {
+    private void addHeader(Document document, Plant plant, HeaderMetadata headerMetadata, Color primaryColor) {
         Font companyFont = FontFactory.getFont(FontFactory.HELVETICA, 9, Font.BOLD, Color.BLACK);
         Font plantFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, Color.BLACK);
         Font metaFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, Color.BLACK);
@@ -143,7 +145,8 @@ public class FormatWeekPdfService {
             Document document,
             FormatWeekSchemaDTO schema,
             List<FormatWeekRowDTO> rows,
-            Map<String, List<FormatWeekTurnDTO>> turnConfigsByDay
+            Map<String, List<FormatWeekTurnDTO>> turnConfigsByDay,
+            Color primaryColor
     ) {
         Font headerFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 6);
         Font cellFont = FontFactory.getFont(FontFactory.HELVETICA, 5);
@@ -163,7 +166,7 @@ public class FormatWeekPdfService {
         table.setWidths(buildColumnWidths(columns, baseColumns));
 
         for (String base : baseColumns) {
-            PdfPCell header = primaryHeaderCell(base, headerFont);
+            PdfPCell header = primaryHeaderCell(base, headerFont, primaryColor);
             header.setRowspan(2);
             table.addCell(header);
         }
@@ -173,12 +176,12 @@ public class FormatWeekPdfService {
             if (dayCols == 0) {
                 continue;
             }
-            PdfPCell dayHeader = primaryHeaderCell(dayDisplayName(dayKey), headerFont);
+            PdfPCell dayHeader = primaryHeaderCell(dayDisplayName(dayKey), headerFont, primaryColor);
             dayHeader.setColspan(dayCols);
             table.addCell(dayHeader);
         }
 
-        PdfPCell totalHeader = primaryHeaderCell("TOTAL", headerFont);
+        PdfPCell totalHeader = primaryHeaderCell("TOTAL", headerFont, primaryColor);
         totalHeader.setRowspan(2);
         table.addCell(totalHeader);
 
@@ -516,11 +519,11 @@ public class FormatWeekPdfService {
         };
     }
 
-    private PdfPCell primaryHeaderCell(String text, Font font) {
+    private PdfPCell primaryHeaderCell(String text, Font font, Color backgroundColor) {
         PdfPCell cell = new PdfPCell(new Phrase(text == null ? "" : text, font));
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setBackgroundColor(new Color(220, 0, 0));
+        cell.setBackgroundColor(backgroundColor == null ? new Color(220, 0, 0) : backgroundColor);
         cell.setPadding(2.2f);
         cell.setBorderColor(Color.BLACK);
         cell.setBorderWidth(1f);
@@ -674,6 +677,26 @@ public class FormatWeekPdfService {
             return "";
         }
         return plant.getCompany().getCompanyName().toUpperCase(Locale.ROOT);
+    }
+
+    private Color resolveCustomPrimaryColor(Plant plant) {
+        String companyName = resolveCompanyName(plant);
+
+        if (companyName.contains("BOSCH")) {
+            return new Color(204, 12, 12);
+        }
+        if (companyName.contains("COOPER")) {
+            return new Color(20, 11, 222);
+        }
+        if (companyName.contains("TPI")) {
+            return new Color(50, 138, 39);
+        }
+
+        if (companyName.contains("MWE")) {
+            return new Color(42, 158, 30);
+        }
+
+        return new Color(220, 0, 0);
     }
 
     private HeaderMetadata resolveHeaderMetadata(Plant plant, LocalDate weekDate) {
