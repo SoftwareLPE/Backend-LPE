@@ -10,6 +10,7 @@ import java.util.List;
 @Repository
 public interface FlexsurWeekRepository extends JpaRepository<FlexsurWeek, Long> {
     List<FlexsurWeek> findByStatus(com.example.backend_sistema_LPE.enums.CascadaStatus status);
+    List<FlexsurWeek> findByStatusAndPlantPlantId(com.example.backend_sistema_LPE.enums.CascadaStatus status, Long plantId);
 
     List<FlexsurWeek> findByPlantPlantIdAndWeekDate(Long plantId, LocalDate weekDate);
 

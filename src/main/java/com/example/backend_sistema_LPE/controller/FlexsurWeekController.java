@@ -10,6 +10,7 @@ import com.example.backend_sistema_LPE.dto.FlexsurWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.UpdateFlexsurManualRowRequestDTO;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
 import com.example.backend_sistema_LPE.service.FlexsurWeekService;
+import com.example.backend_sistema_LPE.service.InboxMessageUserStateService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,9 +33,14 @@ import java.util.List;
 @RequestMapping("/flexsur-week")
 public class FlexsurWeekController {
     private final FlexsurWeekService flexsurWeekService;
+    private final InboxMessageUserStateService inboxMessageUserStateService;
 
-    public FlexsurWeekController(FlexsurWeekService flexsurWeekService) {
+    public FlexsurWeekController(
+            FlexsurWeekService flexsurWeekService,
+            InboxMessageUserStateService inboxMessageUserStateService
+    ) {
         this.flexsurWeekService = flexsurWeekService;
+        this.inboxMessageUserStateService = inboxMessageUserStateService;
     }
 
     @GetMapping("/schema")
@@ -136,7 +142,14 @@ public class FlexsurWeekController {
         Long effectiveRecipientId = isAdmin && recipientUserId != null
                 ? recipientUserId
                 : principal.getUserId();
-        return ResponseEntity.ok(flexsurWeekService.getFlexsurSummaries(status, plantId, weekDate, effectiveRecipientId));
+        List<CascadaSummaryDTO> summaries = flexsurWeekService.getFlexsurSummaries(
+                status,
+                plantId,
+                weekDate,
+                effectiveRecipientId
+        );
+        inboxMessageUserStateService.applyVisualStatus(summaries, effectiveRecipientId);
+        return ResponseEntity.ok(summaries);
     }
 
     private Long parseShiftId(String shiftId) {

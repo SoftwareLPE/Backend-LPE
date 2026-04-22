@@ -10,6 +10,7 @@ import java.util.List;
 @Repository
 public interface RegalWeekRepository extends JpaRepository<RegalWeek, Long> {
     List<RegalWeek> findByStatus(com.example.backend_sistema_LPE.enums.CascadaStatus status);
+    List<RegalWeek> findByStatusAndPlantPlantId(com.example.backend_sistema_LPE.enums.CascadaStatus status, Long plantId);
 
     List<RegalWeek> findByPlantPlantIdAndWeekDate(Long plantId, LocalDate weekDate);
 

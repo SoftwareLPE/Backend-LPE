@@ -1,15 +1,15 @@
 package com.example.backend_sistema_LPE.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Set;
 
 @Data
-@AllArgsConstructor
+@NoArgsConstructor
 public class CascadaSummaryDTO {
 
     private Long cascadaId;
@@ -37,4 +37,42 @@ public class CascadaSummaryDTO {
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime updatedAt;
 
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime currentVersion;
+
+    private String visualStatus;
+
+    public CascadaSummaryDTO(
+            Long cascadaId,
+            String id,
+            Long plantId,
+            String plantName,
+            Long companyId,
+            String companyName,
+            String sentBy,
+            LocalDate weekDate,
+            LocalDate weekStartDate,
+            LocalDate weekEndDate,
+            Integer weekNumber,
+            Set<String> shiftIds,
+            Set<String> dayKeys,
+            LocalDateTime sentAt,
+            LocalDateTime updatedAt
+    ) {
+        this.cascadaId = cascadaId;
+        this.id = id;
+        this.plantId = plantId;
+        this.plantName = plantName;
+        this.companyId = companyId;
+        this.companyName = companyName;
+        this.sentBy = sentBy;
+        this.weekDate = weekDate;
+        this.weekStartDate = weekStartDate;
+        this.weekEndDate = weekEndDate;
+        this.weekNumber = weekNumber;
+        this.shiftIds = shiftIds;
+        this.dayKeys = dayKeys;
+        this.sentAt = sentAt;
+        this.updatedAt = updatedAt;
+    }
 }

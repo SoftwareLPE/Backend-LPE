@@ -11,6 +11,7 @@ import com.example.backend_sistema_LPE.dto.StandardWeeklyResponseDTO;
 import com.example.backend_sistema_LPE.dto.UpdateCascadaStandardManualRowRequestDTO;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
 import com.example.backend_sistema_LPE.service.CascadaStandardService;
+import com.example.backend_sistema_LPE.service.InboxMessageUserStateService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,9 +25,14 @@ import java.util.List;
 @RequestMapping("/cascada/standard")
 public class CascadaStandardController {
     private final CascadaStandardService cascadaStandardService;
+    private final InboxMessageUserStateService inboxMessageUserStateService;
 
-    public CascadaStandardController(CascadaStandardService cascadaStandardService) {
+    public CascadaStandardController(
+            CascadaStandardService cascadaStandardService,
+            InboxMessageUserStateService inboxMessageUserStateService
+    ) {
         this.cascadaStandardService = cascadaStandardService;
+        this.inboxMessageUserStateService = inboxMessageUserStateService;
     }
 
     @GetMapping
@@ -169,8 +175,13 @@ public class CascadaStandardController {
         Long effectiveRecipientId = isAdmin && recipientUserId != null
                 ? recipientUserId
                 : principal.getUserId();
-        return ResponseEntity.ok(
-                cascadaStandardService.getCascadaStandardSummaries(status, plantId, weekDate, effectiveRecipientId)
+        List<CascadaSummaryDTO> summaries = cascadaStandardService.getCascadaStandardSummaries(
+                status,
+                plantId,
+                weekDate,
+                effectiveRecipientId
         );
+        inboxMessageUserStateService.applyVisualStatus(summaries, effectiveRecipientId);
+        return ResponseEntity.ok(summaries);
     }
 }

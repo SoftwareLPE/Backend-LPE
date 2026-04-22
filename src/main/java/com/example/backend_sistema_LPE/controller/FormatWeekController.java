@@ -10,6 +10,7 @@ import com.example.backend_sistema_LPE.dto.UpdateFormatWeekManualRowRequestDTO;
 import com.example.backend_sistema_LPE.dto.CascadaStatusUpdateRequestDTO;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
 import com.example.backend_sistema_LPE.service.FormatWeekService;
+import com.example.backend_sistema_LPE.service.InboxMessageUserStateService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,9 +33,14 @@ import java.util.List;
 @RequestMapping("/format-week")
 public class FormatWeekController {
     private final FormatWeekService formatWeekService;
+    private final InboxMessageUserStateService inboxMessageUserStateService;
 
-    public FormatWeekController(FormatWeekService formatWeekService) {
+    public FormatWeekController(
+            FormatWeekService formatWeekService,
+            InboxMessageUserStateService inboxMessageUserStateService
+    ) {
         this.formatWeekService = formatWeekService;
+        this.inboxMessageUserStateService = inboxMessageUserStateService;
     }
 
     @GetMapping
@@ -148,9 +154,14 @@ public class FormatWeekController {
         Long effectiveRecipientId = isAdmin && recipientUserId != null
                 ? recipientUserId
                 : principal.getUserId();
-        return ResponseEntity.ok(
-                formatWeekService.getFormatWeekSummaries(status, plantId, weekDate, effectiveRecipientId)
+        List<CascadaSummaryDTO> summaries = formatWeekService.getFormatWeekSummaries(
+                status,
+                plantId,
+                weekDate,
+                effectiveRecipientId
         );
+        inboxMessageUserStateService.applyVisualStatus(summaries, effectiveRecipientId);
+        return ResponseEntity.ok(summaries);
     }
 
     @GetMapping("/schema")

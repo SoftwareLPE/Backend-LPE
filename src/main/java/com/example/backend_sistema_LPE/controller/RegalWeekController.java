@@ -9,6 +9,7 @@ import com.example.backend_sistema_LPE.dto.RegalWeekSchemaDTO;
 import com.example.backend_sistema_LPE.dto.RegalWeekSaveRequestDTO;
 import com.example.backend_sistema_LPE.dto.UpdateRegalManualRowRequestDTO;
 import com.example.backend_sistema_LPE.security.UserPrincipal;
+import com.example.backend_sistema_LPE.service.InboxMessageUserStateService;
 import com.example.backend_sistema_LPE.service.RegalWeekService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -32,9 +33,14 @@ import java.util.List;
 @RequestMapping("/regal-week")
 public class RegalWeekController {
     private final RegalWeekService regalWeekService;
+    private final InboxMessageUserStateService inboxMessageUserStateService;
 
-    public RegalWeekController(RegalWeekService regalWeekService) {
+    public RegalWeekController(
+            RegalWeekService regalWeekService,
+            InboxMessageUserStateService inboxMessageUserStateService
+    ) {
         this.regalWeekService = regalWeekService;
+        this.inboxMessageUserStateService = inboxMessageUserStateService;
     }
 
     @GetMapping("/schema")
@@ -132,6 +138,13 @@ public class RegalWeekController {
         Long effectiveRecipientId = isAdmin && recipientUserId != null
                 ? recipientUserId
                 : principal.getUserId();
-        return ResponseEntity.ok(regalWeekService.getRegalSummaries(status, plantId, weekDate, effectiveRecipientId));
+        List<CascadaSummaryDTO> summaries = regalWeekService.getRegalSummaries(
+                status,
+                plantId,
+                weekDate,
+                effectiveRecipientId
+        );
+        inboxMessageUserStateService.applyVisualStatus(summaries, effectiveRecipientId);
+        return ResponseEntity.ok(summaries);
     }
 }
