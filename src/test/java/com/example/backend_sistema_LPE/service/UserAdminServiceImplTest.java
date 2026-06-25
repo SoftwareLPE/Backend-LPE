@@ -1,15 +1,8 @@
 package com.example.backend_sistema_LPE.service;
 
-import com.example.backend_sistema_LPE.dto.CreateUserRequestDTO;
-import com.example.backend_sistema_LPE.dto.UpdateUserRequestDTO;
-import com.example.backend_sistema_LPE.dto.UserDetailDTO;
-import com.example.backend_sistema_LPE.dto.UserTableDTO;
-import com.example.backend_sistema_LPE.model.Role;
-import com.example.backend_sistema_LPE.model.User;
-import com.example.backend_sistema_LPE.repository.RoleRepository;
-import com.example.backend_sistema_LPE.repository.UserCompanyRepository;
-import com.example.backend_sistema_LPE.repository.UserPlantRepository;
-import com.example.backend_sistema_LPE.repository.UserRepository;
+import com.example.backend_sistema_LPE.apps.shared.user.*;
+import com.example.backend_sistema_LPE.apps.shared.role.Role;
+import com.example.backend_sistema_LPE.apps.shared.role.RoleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -217,6 +210,37 @@ class UserAdminServiceImplTest {
         verify(userPlantRepository).deleteByUserUserId(10L);
         verify(userCompanyRepository).deleteByUserUserId(10L);
         verify(userRepository).deleteById(10L);
+    }
+
+    @Test
+    void updateUserActive_updatesUserStatus() {
+        Role role = new Role();
+        role.setRoleId(3L);
+        role.setRoleName("COORDINADOR");
+
+        User user = new User();
+        user.setUserId(10L);
+        user.setName("Juan");
+        user.setLastName("Perez");
+        user.setUserName("jperez");
+        user.setEmail("juan@example.com");
+        user.setActive(true);
+        user.setRole(role);
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+
+        UserTableDTO result = service.updateUserActive(10L, false, 5L);
+
+        assertThat(result.getActive()).isFalse();
+        assertThat(user.getActive()).isFalse();
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void updateUserActive_rejectsSelfDisable() {
+        assertThatThrownBy(() -> service.updateUserActive(10L, false, 10L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("No se puede desactivar el usuario autenticado");
     }
 
     private CreateUserRequestDTO baseCreateRequest() {

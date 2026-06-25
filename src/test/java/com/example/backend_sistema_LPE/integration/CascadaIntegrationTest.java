@@ -1,16 +1,16 @@
 package com.example.backend_sistema_LPE.integration;
 
-import com.example.backend_sistema_LPE.dto.AuthRequest;
-import com.example.backend_sistema_LPE.model.Company;
-import com.example.backend_sistema_LPE.model.Driver;
-import com.example.backend_sistema_LPE.model.Plant;
-import com.example.backend_sistema_LPE.model.Role;
-import com.example.backend_sistema_LPE.model.User;
-import com.example.backend_sistema_LPE.repository.CompanyRepository;
-import com.example.backend_sistema_LPE.repository.DriverRepository;
-import com.example.backend_sistema_LPE.repository.PlantRepository;
-import com.example.backend_sistema_LPE.repository.RoleRepository;
-import com.example.backend_sistema_LPE.repository.UserRepository;
+import com.example.backend_sistema_LPE.apps.shared.auth.AuthRequest;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.company.Company;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.driver.Driver;
+import com.example.backend_sistema_LPE.apps.shared.plant.Plant;
+import com.example.backend_sistema_LPE.apps.shared.role.Role;
+import com.example.backend_sistema_LPE.apps.shared.user.User;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.company.CompanyRepository;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.driver.DriverRepository;
+import com.example.backend_sistema_LPE.apps.shared.plant.PlantRepository;
+import com.example.backend_sistema_LPE.apps.shared.role.RoleRepository;
+import com.example.backend_sistema_LPE.apps.shared.user.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

@@ -1,19 +1,13 @@
 package com.example.backend_sistema_LPE.service;
 
-import com.example.backend_sistema_LPE.dto.CreateDriverWithRouteDTO;
-import com.example.backend_sistema_LPE.dto.DriverViewDTO;
-import com.example.backend_sistema_LPE.enums.DriverType;
-import com.example.backend_sistema_LPE.model.Driver;
-import com.example.backend_sistema_LPE.model.DriverPlantAssignment;
-import com.example.backend_sistema_LPE.model.Plant;
-import com.example.backend_sistema_LPE.model.Route;
-import com.example.backend_sistema_LPE.model.Shift;
-import com.example.backend_sistema_LPE.repository.DriverPlantAssignmentRepository;
-import com.example.backend_sistema_LPE.repository.DriverRepository;
-import com.example.backend_sistema_LPE.repository.DriverRouteRepository;
-import com.example.backend_sistema_LPE.repository.PlantRepository;
-import com.example.backend_sistema_LPE.repository.RouteRepository;
-import com.example.backend_sistema_LPE.repository.ShiftRepository;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.driver.*;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.enums.DriverType;
+import com.example.backend_sistema_LPE.apps.shared.plant.Plant;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.route.Route;
+import com.example.backend_sistema_LPE.apps.shared.shift.Shift;
+import com.example.backend_sistema_LPE.apps.shared.plant.PlantRepository;
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.route.RouteRepository;
+import com.example.backend_sistema_LPE.apps.shared.shift.ShiftRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

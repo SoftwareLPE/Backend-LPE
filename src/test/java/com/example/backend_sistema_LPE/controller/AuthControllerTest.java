@@ -1,20 +1,20 @@
 package com.example.backend_sistema_LPE.controller;
 
-import com.example.backend_sistema_LPE.dto.AuthRequest;
-import com.example.backend_sistema_LPE.dto.AuthResponse;
-import com.example.backend_sistema_LPE.dto.PlantCompanyInfoDTO;
-import com.example.backend_sistema_LPE.dto.RegisterRequest;
-import com.example.backend_sistema_LPE.model.Permission;
-import com.example.backend_sistema_LPE.model.Role;
-import com.example.backend_sistema_LPE.model.User;
-import com.example.backend_sistema_LPE.repository.PermissionRepository;
-import com.example.backend_sistema_LPE.repository.RolePermissionRepository;
-import com.example.backend_sistema_LPE.repository.RoleRepository;
-import com.example.backend_sistema_LPE.repository.UserPlantRepository;
-import com.example.backend_sistema_LPE.repository.UserRepository;
-import com.example.backend_sistema_LPE.security.JwtConfig;
-import com.example.backend_sistema_LPE.security.MyUserDetailsService;
-import com.example.backend_sistema_LPE.security.UserPrincipal;
+import com.example.backend_sistema_LPE.apps.shared.auth.AuthController;
+import com.example.backend_sistema_LPE.apps.shared.auth.AuthRequest;
+import com.example.backend_sistema_LPE.apps.shared.auth.AuthResponse;
+import com.example.backend_sistema_LPE.apps.shared.auth.RegisterRequest;
+import com.example.backend_sistema_LPE.apps.shared.permission.Permission;
+import com.example.backend_sistema_LPE.apps.shared.role.Role;
+import com.example.backend_sistema_LPE.apps.shared.user.User;
+import com.example.backend_sistema_LPE.apps.shared.permission.PermissionRepository;
+import com.example.backend_sistema_LPE.apps.shared.role.RolePermissionRepository;
+import com.example.backend_sistema_LPE.apps.shared.role.RoleRepository;
+import com.example.backend_sistema_LPE.apps.shared.user.UserPlantRepository;
+import com.example.backend_sistema_LPE.apps.shared.user.UserRepository;
+import com.example.backend_sistema_LPE.apps.shared.security.JwtConfig;
+import com.example.backend_sistema_LPE.apps.shared.security.MyUserDetailsService;
+import com.example.backend_sistema_LPE.apps.shared.security.UserPrincipal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -88,6 +89,7 @@ class AuthControllerTest {
                 10L,
                 "admin",
                 "secret",
+                true,
                 List.of(new SimpleGrantedAuthority("ROLE_ADMINISTRADOR"))
         );
 
@@ -128,6 +130,7 @@ class AuthControllerTest {
                 20L,
                 "coord",
                 "secret",
+                true,
                 List.of(new SimpleGrantedAuthority("ROLE_COORDINADOR_PLANTA"))
         );
 
@@ -158,7 +161,22 @@ class AuthControllerTest {
         ResponseEntity<?> response = controller.login(request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(response.getBody()).isEqualTo("Credenciales inválidas");
+        assertThat(response.getBody()).isEqualTo("Credenciales invalidas");
+    }
+
+    @Test
+    void login_returnsUnauthorizedForInactiveUser() {
+        AuthRequest request = new AuthRequest();
+        request.setUsername("inactive");
+        request.setPassword("secret");
+
+        when(authenticationManager.authenticate(any()))
+                .thenThrow(new DisabledException("disabled"));
+
+        ResponseEntity<?> response = controller.login(request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody()).isEqualTo("Usuario inactivo");
     }
 
     @Test
@@ -171,7 +189,7 @@ class AuthControllerTest {
         ResponseEntity<?> response = controller.register(request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody()).isEqualTo("El nombre de usuario ya está en uso");
+        assertThat(response.getBody()).isEqualTo("El nombre de usuario ya esta en uso");
     }
 
     @Test

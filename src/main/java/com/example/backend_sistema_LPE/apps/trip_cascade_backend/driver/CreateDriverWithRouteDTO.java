@@ -1,0 +1,26 @@
+package com.example.backend_sistema_LPE.apps.trip_cascade_backend.driver;
+
+import com.example.backend_sistema_LPE.apps.trip_cascade_backend.enums.DriverType;
+import lombok.Data;
+
+@Data
+public class CreateDriverWithRouteDTO {
+    // Datos del chofer
+    private String driverName;
+    private String lastName;
+    private Long plantId;
+    private Boolean active;
+    private java.util.Set<Long> shiftIds;
+
+    // Datos de la ruta
+    private Long routeId;      // opcional
+    private String routeName;  // opcional, según el caso
+    private String routeLocation;
+    private String unitType;
+
+    // Datos de la asignación
+    private DriverType driverType; // TITULAR / EXTRA
+//    private String shift;
+//    private String notes;
+    //private String notes;
+}

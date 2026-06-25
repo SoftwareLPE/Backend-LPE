@@ -1,10 +1,10 @@
 package com.example.backend_sistema_LPE.integration;
 
-import com.example.backend_sistema_LPE.dto.AuthRequest;
-import com.example.backend_sistema_LPE.model.Role;
-import com.example.backend_sistema_LPE.model.User;
-import com.example.backend_sistema_LPE.repository.RoleRepository;
-import com.example.backend_sistema_LPE.repository.UserRepository;
+import com.example.backend_sistema_LPE.apps.shared.auth.AuthRequest;
+import com.example.backend_sistema_LPE.apps.shared.role.Role;
+import com.example.backend_sistema_LPE.apps.shared.user.User;
+import com.example.backend_sistema_LPE.apps.shared.role.RoleRepository;
+import com.example.backend_sistema_LPE.apps.shared.user.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
