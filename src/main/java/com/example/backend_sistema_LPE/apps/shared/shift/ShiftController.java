@@ -36,6 +36,15 @@ public class ShiftController {
         return ResponseEntity.ok(shiftService.updateShift(plantId, shiftId, request));
     }
 
+    @PatchMapping("/{shiftId}/status")
+    public ResponseEntity<ShiftDTO> updateShiftStatus(
+            @PathVariable Long plantId,
+            @PathVariable Long shiftId,
+            @RequestBody UpdateShiftStatusRequestDTO request
+    ) {
+        return ResponseEntity.ok(shiftService.updateShiftStatus(plantId, shiftId, request));
+    }
+
     @DeleteMapping("/{shiftId}")
     public ResponseEntity<Void> deleteShift(
             @PathVariable Long plantId,

@@ -11,6 +11,7 @@ import java.util.Set;
 @Data
 public class CreateShiftRequestDTO {
     private String shiftName;
+    private Boolean active;
     private Set<String> wialonAliasNames = new HashSet<>();
     private ShiftType shiftType;
     private Set<String> dayKeys;

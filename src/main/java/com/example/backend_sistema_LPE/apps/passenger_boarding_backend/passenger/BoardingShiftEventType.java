@@ -1,8 +1,6 @@
 package com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger;
 
-public enum BoardingShiftWindowType {
+public enum BoardingShiftEventType {
     ENTRY,
-    EXIT,
-    OUT_OF_WINDOW,
-    UNMATCHED_SHIFT
+    EXIT
 }

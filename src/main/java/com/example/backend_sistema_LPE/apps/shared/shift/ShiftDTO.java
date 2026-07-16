@@ -12,6 +12,7 @@ import java.util.Set;
 public class ShiftDTO {
     private Long shiftId;
     private String shiftName;
+    private Boolean active;
     private Set<String> wialonAliasNames = new HashSet<>();
     private ShiftType shiftType;
     private Set<String> dayKeys;

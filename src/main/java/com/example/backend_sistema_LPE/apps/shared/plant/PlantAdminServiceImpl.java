@@ -12,6 +12,9 @@ import com.example.backend_sistema_LPE.apps.shared.user.UserPlantRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.Locale;
+
 @Service
 public class PlantAdminServiceImpl implements PlantAdminService {
     private final PlantRepository plantRepository;
@@ -41,6 +44,12 @@ public class PlantAdminServiceImpl implements PlantAdminService {
         this.formatCatalogRepository = formatCatalogRepository;
         this.formatTypeRepository = formatTypeRepository;
         this.shiftRepository = shiftRepository;
+    }
+
+    @Override
+    public List<PlantCatalogRowDTO> getPlantCatalog(Long companyId, String search) {
+        String searchPattern = buildSearchPattern(search);
+        return plantRepository.findPlantCatalogRows(companyId, searchPattern);
     }
 
     //Endpoint para actualizar nombre de plantas
@@ -124,6 +133,17 @@ public class PlantAdminServiceImpl implements PlantAdminService {
         }
 
         return linkedFormatType.getFormatTypeId();
+    }
+
+    private String buildSearchPattern(String search) {
+        if (search == null) {
+            return null;
+        }
+        String trimmedSearch = search.trim();
+        if (trimmedSearch.isEmpty()) {
+            return null;
+        }
+        return "%" + trimmedSearch.toLowerCase(Locale.ROOT) + "%";
     }
 
 }

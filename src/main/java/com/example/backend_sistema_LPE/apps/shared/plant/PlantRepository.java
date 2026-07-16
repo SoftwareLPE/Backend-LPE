@@ -56,4 +56,31 @@ public interface PlantRepository extends JpaRepository<Plant,Long> {
 """)
     List<Long> findPlantIdsWithWialonUnitsGroupId();
 
+    @Query("""
+    select new com.example.backend_sistema_LPE.apps.shared.plant.PlantCatalogRowDTO(
+        c.companyId,
+        c.companyName,
+        p.plantId,
+        p.plantName,
+        count(distinct s.shiftId),
+        case when count(distinct s.shiftId) > 0 then true else false end
+    )
+    from Plant p
+    join p.company c
+    left join Shift s on s.plant.plantId = p.plantId
+    where (:companyId is null or c.companyId = :companyId)
+      and (
+        :searchPattern is null
+        or lower(c.companyName) like :searchPattern
+        or lower(p.plantName) like :searchPattern
+        or lower(coalesce(p.location, '')) like :searchPattern
+      )
+    group by c.companyId, c.companyName, p.plantId, p.plantName
+    order by c.companyName asc, p.plantName asc
+""")
+    List<PlantCatalogRowDTO> findPlantCatalogRows(
+            @Param("companyId") Long companyId,
+            @Param("searchPattern") String searchPattern
+    );
+
 }

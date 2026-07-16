@@ -86,6 +86,7 @@ public class ShiftServiceImpl implements ShiftService {
                     : request.getShortWeekDayKeys();
 
             existingShift.setShiftName(request.getShiftName().trim());
+            existingShift.setActive(resolveActive(request.getActive(), existingShift.getActive()));
             existingShift.setStartTime(request.getStartTime());
             existingShift.setEndTime(request.getEndTime());
             applyShiftSchedule(existingShift, resolveShiftType(requestedShiftType), requestedDayKeys, requestedLongWeekDayKeys, requestedShortWeekDayKeys);
@@ -112,6 +113,7 @@ public class ShiftServiceImpl implements ShiftService {
         Shift shift = new Shift();
         shift.setPlant(plant);
         shift.setShiftName(request.getShiftName().trim());
+        shift.setActive(resolveActive(request.getActive(), Boolean.TRUE));
         shift.setStartTime(request.getStartTime());
         shift.setEndTime(request.getEndTime());
         applyShiftSchedule(shift, resolveShiftType(request.getShiftType()), request.getDayKeys(), request.getLongWeekDayKeys(), request.getShortWeekDayKeys());
@@ -151,6 +153,10 @@ public class ShiftServiceImpl implements ShiftService {
         }
         if (request.getWialonAliasNames() != null) {
             syncWialonAliases(shift, request.getWialonAliasNames());
+            hasUpdates = true;
+        }
+        if (request.getActive() != null) {
+            shift.setActive(request.getActive());
             hasUpdates = true;
         }
         if (request.getStartTime() != null) {
@@ -205,6 +211,21 @@ public class ShiftServiceImpl implements ShiftService {
 
     @Override
     @Transactional
+    public ShiftDTO updateShiftStatus(Long plantId, Long shiftId, UpdateShiftStatusRequestDTO request) {
+        if (request == null || request.getActive() == null) {
+            throw new RuntimeException("active is required");
+        }
+
+        Shift shift = shiftRepository.findByShiftIdAndPlantPlantId(shiftId, plantId)
+                .orElseThrow(() -> new RuntimeException("Shift not found " + shiftId));
+
+        shift.setActive(request.getActive());
+        Shift saved = shiftRepository.save(shift);
+        return toDTO(saved);
+    }
+
+    @Override
+    @Transactional
     public void deleteShift(Long plantId, Long shiftId) {
         Plant plant = lockPlant(plantId)
                 .orElseThrow(() -> new RuntimeException("Plant not found " + plantId));
@@ -219,6 +240,7 @@ public class ShiftServiceImpl implements ShiftService {
         ShiftDTO dto = new ShiftDTO();
         dto.setShiftId(shift.getShiftId());
         dto.setShiftName(shift.getShiftName());
+        dto.setActive(shift.getActive());
         dto.setWialonAliasNames(extractAliasNames(shift));
         dto.setDayKeys(shift.getDayKeys());
         dto.setShiftType(effectiveShiftType(shift));
@@ -429,6 +451,13 @@ public class ShiftServiceImpl implements ShiftService {
 
     private ShiftType effectiveShiftType(Shift shift) {
         return shift == null || shift.getShiftType() == null ? ShiftType.REGULAR : shift.getShiftType();
+    }
+
+    private Boolean resolveActive(Boolean requestedActive, Boolean currentActive) {
+        if (requestedActive != null) {
+            return requestedActive;
+        }
+        return currentActive == null ? Boolean.TRUE : currentActive;
     }
 
     private java.util.Set<String> effectiveDayKeys(Shift shift) {

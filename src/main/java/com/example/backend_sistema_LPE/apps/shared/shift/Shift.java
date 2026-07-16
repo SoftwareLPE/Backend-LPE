@@ -44,6 +44,9 @@ public class Shift {
     @Column(name = "shift_type")
     private ShiftType shiftType = ShiftType.REGULAR;
 
+    @Column(name = "active", nullable = false)
+    private Boolean active = Boolean.TRUE;
+
     @ElementCollection
     @CollectionTable(
             name = "shift_days",

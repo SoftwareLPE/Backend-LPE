@@ -10,6 +10,7 @@ import java.util.Set;
 @Data
 public class UpdateShiftRequestDTO {
     private String shiftName;
+    private Boolean active;
     private Set<String> wialonAliasNames;
     private ShiftType shiftType;
     private Set<String> dayKeys;

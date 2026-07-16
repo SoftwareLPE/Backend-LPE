@@ -2,8 +2,8 @@ package com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenge
 
 import com.example.backend_sistema_LPE.apps.shared.shift.Shift;
 
-public record BoardingShiftWindowResolution(
+public record BoardingShiftClassificationResult(
         Shift shift,
-        BoardingShiftWindowType windowType
+        BoardingShiftEventType eventType
 ) {
 }

@@ -1,5 +1,6 @@
 package com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger;
 
+import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.dto.BoardingEventIngestionSummary;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger_group.PassengerGroup;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger_group.PassengerGroupRepository;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report.ReportExecution;
@@ -29,8 +30,8 @@ import java.util.Set;
 
 @Service
 @Transactional
-public class BoardingEventIngestionService {
-    private static final Logger log = LoggerFactory.getLogger(BoardingEventIngestionService.class);
+public class BoardingEventApiSyncServiceImpl implements BoardingEventApiSyncService {
+    private static final Logger log = LoggerFactory.getLogger(BoardingEventApiSyncServiceImpl.class);
     private static final Set<String> REQUIRED_HEADER_TYPES = Set.of("unit_name", "tag", "time_begin");
 
     private final PlantRepository plantRepository;
@@ -41,7 +42,7 @@ public class BoardingEventIngestionService {
     private final ObjectMapper objectMapper;
     private final UnitNameNormalizationService unitNameNormalizationService;
 
-    public BoardingEventIngestionService(
+    public BoardingEventApiSyncServiceImpl(
             PlantRepository plantRepository,
             PassengerGroupRepository passengerGroupRepository,
             UnitRepository unitRepository,
@@ -59,7 +60,8 @@ public class BoardingEventIngestionService {
         this.unitNameNormalizationService = unitNameNormalizationService;
     }
 
-    public BoardingEventIngestionResult ingest(
+    @Override
+    public BoardingEventIngestionSummary ingest(
             ReportExecution reportExecution,
             JsonNode execResponse,
             JsonNode rowsResponse,
@@ -75,7 +77,7 @@ public class BoardingEventIngestionService {
         log.info("Column map construido para resourceId={}: {}", resourceId, columnMap);
         log.info("=== INICIO INGESTA === filas candidatas: {}", candidateRows.size());
 
-        BoardingEventIngestionResult result = new BoardingEventIngestionResult();
+        BoardingEventIngestionSummary result = new BoardingEventIngestionSummary();
         result.setCandidateRows(candidateRows.size());
 
         for (JsonNode row : candidateRows) {
@@ -116,7 +118,7 @@ public class BoardingEventIngestionService {
             PassengerGroup passengerGroup,
             Long resourceId,
             Long objectSecId,
-            BoardingEventIngestionResult result
+            BoardingEventIngestionSummary result
     ) {
         JsonNode cells = row.path("c");
         logRowPreview(row, cells, columnMap);
@@ -188,7 +190,7 @@ public class BoardingEventIngestionService {
         log.info("  time_begin={} valor={}", columnMap.get("time_begin"), cellPreview(cells, columnMap.get("time_begin")));
     }
 
-    private boolean isDuplicateRowKey(String wialonRowKey, BoardingEventIngestionResult result) {
+    private boolean isDuplicateRowKey(String wialonRowKey, BoardingEventIngestionSummary result) {
         log.info("  wialonRowKey: {}", wialonRowKey);
         boolean exists = boardingEventRepository.existsByWialonRowKey(wialonRowKey);
         log.info("  existe en BD: {}", exists);

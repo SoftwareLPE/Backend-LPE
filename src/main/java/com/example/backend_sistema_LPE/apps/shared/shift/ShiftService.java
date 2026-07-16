@@ -9,5 +9,7 @@ public interface ShiftService {
 
     ShiftDTO updateShift(Long plantId, Long shiftId, UpdateShiftRequestDTO request);
 
+    ShiftDTO updateShiftStatus(Long plantId, Long shiftId, UpdateShiftStatusRequestDTO request);
+
     void deleteShift(Long plantId, Long shiftId);
 }

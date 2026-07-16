@@ -3,8 +3,10 @@ package com.example.backend_sistema_LPE.apps.shared.plant;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
-@RequestMapping("/admin/companies/{companyId}/plants")
+@RequestMapping("/admin")
 public class AdminPlantController {
     private final PlantAdminService plantAdminService;
 
@@ -12,7 +14,15 @@ public class AdminPlantController {
         this.plantAdminService = plantAdminService;
     }
 
-    @PatchMapping("/{plantId}")
+    @GetMapping("/plants/catalog")
+    public ResponseEntity<List<PlantCatalogRowDTO>> getPlantCatalog(
+            @RequestParam(required = false) Long companyId,
+            @RequestParam(required = false) String search
+    ) {
+        return ResponseEntity.ok(plantAdminService.getPlantCatalog(companyId, search));
+    }
+
+    @PatchMapping("/companies/{companyId}/plants/{plantId}")
     public ResponseEntity<UpdatePlantNameDTO> updatePlantName(
             @PathVariable Long companyId,
             @PathVariable Long plantId,
@@ -21,7 +31,7 @@ public class AdminPlantController {
         return ResponseEntity.ok(plantAdminService.updatePlantName(plantId, companyId, updatePlantNameDTO));
     }
 
-    @DeleteMapping("/{plantId}")
+    @DeleteMapping("/companies/{companyId}/plants/{plantId}")
     public ResponseEntity<Void> deletePlant(
             @PathVariable Long companyId,
             @PathVariable Long plantId

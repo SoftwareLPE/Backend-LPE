@@ -1,7 +1,7 @@
 package com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report;
 
-import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingEventIngestionService;
-import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingEventIngestionResult;
+import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingEventApiSyncService;
+import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.dto.BoardingEventIngestionSummary;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report.dto.ExecuteReportRequest;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report.dto.ExecuteReportResponse;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report.enums.ReportExecutionStatus;
@@ -31,7 +31,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
     private final ReportExecutionRepository reportExecutionRepository;
     private final SessionWialonService sessionWialonService;
     private final WialonReportClient wialonReportClient;
-    private final BoardingEventIngestionService boardingEventIngestionService;
+    private final BoardingEventApiSyncService boardingEventApiSyncService;
     private final long reportTtlSeconds;
     private final long runningLockSeconds;
     private final ConcurrentMap<String, ReentrantLock> requestLocks = new ConcurrentHashMap<>();
@@ -40,14 +40,14 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
             ReportExecutionRepository reportExecutionRepository,
             SessionWialonService sessionWialonService,
             WialonReportClient wialonReportClient,
-            BoardingEventIngestionService boardingEventIngestionService,
+            BoardingEventApiSyncService boardingEventApiSyncService,
             @Value("${wialon.report.ttl-seconds:300}") long reportTtlSeconds,
             @Value("${wialon.report.lock-seconds:180}") long runningLockSeconds
     ) {
         this.reportExecutionRepository = reportExecutionRepository;
         this.sessionWialonService = sessionWialonService;
         this.wialonReportClient = wialonReportClient;
-        this.boardingEventIngestionService = boardingEventIngestionService;
+        this.boardingEventApiSyncService = boardingEventApiSyncService;
         this.reportTtlSeconds = reportTtlSeconds;
         this.runningLockSeconds = runningLockSeconds;
     }
@@ -113,7 +113,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
 
         JsonNode execResponse = null;
         JsonNode rowsResponse = null;
-        BoardingEventIngestionResult ingestionResult = new BoardingEventIngestionResult();
+        BoardingEventIngestionSummary ingestionResult = new BoardingEventIngestionSummary();
 
         try {
             try {
@@ -140,7 +140,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
             String rowsPreview = rowsResponse == null ? "null" : rowsResponse.toString();
             log.info("Wialon select_result_rows preview={}",
                     rowsPreview.substring(0, Math.min(500, rowsPreview.length())));
-            ingestionResult = boardingEventIngestionService.ingest(
+            ingestionResult = boardingEventApiSyncService.ingest(
                     execution,
                     execResponse,
                     rowsResponse,

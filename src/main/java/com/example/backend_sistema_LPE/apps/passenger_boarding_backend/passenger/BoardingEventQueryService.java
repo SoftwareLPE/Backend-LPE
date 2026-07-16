@@ -15,14 +15,14 @@ import java.util.List;
 public class BoardingEventQueryService {
 
     private final BoardingEventRepository boardingEventRepository;
-    private final BoardingShiftWindowClassifier boardingShiftWindowClassifier;
+    private final BoardingShiftClassifierService boardingShiftClassifierService;
 
     public BoardingEventQueryService(
             BoardingEventRepository boardingEventRepository,
-            BoardingShiftWindowClassifier boardingShiftWindowClassifier
+            BoardingShiftClassifierService boardingShiftClassifierService
     ) {
         this.boardingEventRepository = boardingEventRepository;
-        this.boardingShiftWindowClassifier = boardingShiftWindowClassifier;
+        this.boardingShiftClassifierService = boardingShiftClassifierService;
     }
 
     public List<BoardingEventViewResponse> findTrips(
@@ -58,9 +58,9 @@ public class BoardingEventQueryService {
         );
 
         List<BoardingEventViewResponse> response = new ArrayList<>(rows.size());
-        BoardingShiftWindowType requestedWindowType = parseWindowType(windowType);
+        BoardingShiftEventType requestedWindowType = parseWindowType(windowType);
         for (BoardingEvent row : rows) {
-            BoardingShiftWindowResolution shiftWindowResolution = boardingShiftWindowClassifier.classify(row);
+            BoardingShiftClassificationResult shiftWindowResolution = boardingShiftClassifierService.determinePassengerBoardingShift(row);
             if (resolvedShiftId != null) {
                 Long currentResolvedShiftId = shiftWindowResolution.shift() == null
                         ? null
@@ -69,7 +69,7 @@ public class BoardingEventQueryService {
                     continue;
                 }
             }
-            if (requestedWindowType != null && shiftWindowResolution.windowType() != requestedWindowType) {
+            if (requestedWindowType != null && shiftWindowResolution.eventType() != requestedWindowType) {
                 continue;
             }
             String resolvedShiftName = shiftWindowResolution.shift() == null
@@ -86,7 +86,7 @@ public class BoardingEventQueryService {
                     row.getRowNumber(),
                     resolvedShiftName,
                     shiftWindowResolution.shift() == null ? null : shiftWindowResolution.shift().getShiftId(),
-                    shiftWindowResolution.windowType().name(),
+                    shiftWindowResolution.eventType().name(),
                     row.getBoardingTime(),
                     row.getAlightingTime(),
                     row.getStartLocationText(),
@@ -101,14 +101,14 @@ public class BoardingEventQueryService {
         return response;
     }
 
-    private BoardingShiftWindowType parseWindowType(String windowType) {
+    private BoardingShiftEventType parseWindowType(String windowType) {
         if (windowType == null || windowType.isBlank()) {
             return null;
         }
         try {
-            return BoardingShiftWindowType.valueOf(windowType.trim().toUpperCase());
+            return BoardingShiftEventType.valueOf(windowType.trim().toUpperCase());
         } catch (IllegalArgumentException ex) {
-            throw new IllegalArgumentException("Invalid windowType. Allowed values: ENTRY, EXIT, OUT_OF_WINDOW, UNMATCHED_SHIFT");
+            throw new IllegalArgumentException("Invalid windowType. Allowed values: ENTRY, EXIT");
         }
     }
 
