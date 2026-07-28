@@ -1,6 +1,7 @@
 package com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report;
 
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingEventApiSyncService;
+import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingEventRepository;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.dto.BoardingEventIngestionSummary;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report.dto.ExecuteReportRequest;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report.dto.ExecuteReportResponse;
@@ -32,6 +33,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
     private final SessionWialonService sessionWialonService;
     private final WialonReportClient wialonReportClient;
     private final BoardingEventApiSyncService boardingEventApiSyncService;
+    private final BoardingEventRepository boardingEventRepository;
     private final long reportTtlSeconds;
     private final long runningLockSeconds;
     private final ConcurrentMap<String, ReentrantLock> requestLocks = new ConcurrentHashMap<>();
@@ -41,6 +43,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
             SessionWialonService sessionWialonService,
             WialonReportClient wialonReportClient,
             BoardingEventApiSyncService boardingEventApiSyncService,
+            BoardingEventRepository boardingEventRepository,
             @Value("${wialon.report.ttl-seconds:300}") long reportTtlSeconds,
             @Value("${wialon.report.lock-seconds:180}") long runningLockSeconds
     ) {
@@ -48,6 +51,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
         this.sessionWialonService = sessionWialonService;
         this.wialonReportClient = wialonReportClient;
         this.boardingEventApiSyncService = boardingEventApiSyncService;
+        this.boardingEventRepository = boardingEventRepository;
         this.reportTtlSeconds = reportTtlSeconds;
         this.runningLockSeconds = runningLockSeconds;
     }
@@ -148,6 +152,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
                     request.getObjectSecId(),
                     tableIndex
             );
+            logPersistedRangeDiagnostics(execution, request.getResourceId());
 
             execution.setTotalRows(extractTotalRows(execResponse));
             execution.setRowCount(extractRowCount(rowsResponse));
@@ -399,5 +404,26 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
             return value;
         }
         return value.substring(0, maxLen);
+    }
+
+    private void logPersistedRangeDiagnostics(ReportExecution execution, Long resourceId) {
+        if (execution == null || execution.getReportExecutionId() == null) {
+            return;
+        }
+
+        long persistedCount = boardingEventRepository.countByReportExecutionReportExecutionId(execution.getReportExecutionId());
+        Timestamp minBoardingTime = boardingEventRepository.findMinBoardingTimeByReportExecutionId(execution.getReportExecutionId());
+        Timestamp maxBoardingTime = boardingEventRepository.findMaxBoardingTimeByReportExecutionId(execution.getReportExecutionId());
+
+        log.info(
+                "Sync persisted diagnostics reportExecutionId={} resourceId={} requestedFrom={} requestedTo={} persistedCount={} minBoardingTime={} maxBoardingTime={}",
+                execution.getReportExecutionId(),
+                resourceId,
+                execution.getIntervalFrom(),
+                execution.getIntervalTo(),
+                persistedCount,
+                minBoardingTime,
+                maxBoardingTime
+        );
     }
 }

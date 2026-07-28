@@ -27,6 +27,50 @@ public interface BoardingEventRepository extends JpaRepository<BoardingEvent, Lo
 
     long countByUnitUnitIdAndShiftIn(Long unitId, Collection<String> shifts);
 
+    long countByReportExecutionReportExecutionId(Long reportExecutionId);
+
+    long countByPlantPlantIdAndBoardingTimeBetween(Long plantId, Timestamp from, Timestamp to);
+
+    @Query("""
+        select min(be.boardingTime)
+        from BoardingEvent be
+        where be.reportExecution.reportExecutionId = :reportExecutionId
+    """)
+    Timestamp findMinBoardingTimeByReportExecutionId(@Param("reportExecutionId") Long reportExecutionId);
+
+    @Query("""
+        select max(be.boardingTime)
+        from BoardingEvent be
+        where be.reportExecution.reportExecutionId = :reportExecutionId
+    """)
+    Timestamp findMaxBoardingTimeByReportExecutionId(@Param("reportExecutionId") Long reportExecutionId);
+
+    @Query("""
+        select min(be.boardingTime)
+        from BoardingEvent be
+        where be.plant.plantId = :plantId
+          and be.boardingTime >= :from
+          and be.boardingTime <= :to
+    """)
+    Timestamp findMinBoardingTimeByPlantAndRange(
+            @Param("plantId") Long plantId,
+            @Param("from") Timestamp from,
+            @Param("to") Timestamp to
+    );
+
+    @Query("""
+        select max(be.boardingTime)
+        from BoardingEvent be
+        where be.plant.plantId = :plantId
+          and be.boardingTime >= :from
+          and be.boardingTime <= :to
+    """)
+    Timestamp findMaxBoardingTimeByPlantAndRange(
+            @Param("plantId") Long plantId,
+            @Param("from") Timestamp from,
+            @Param("to") Timestamp to
+    );
+
     @Query("""
         select distinct be.unit
         from BoardingEvent be

@@ -10,6 +10,8 @@ import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.unit.Unit
 import com.example.backend_sistema_LPE.apps.shared.plant.Plant;
 import com.example.backend_sistema_LPE.apps.shared.plant.PlantRepository;
 import jakarta.persistence.criteria.Predicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -28,6 +30,7 @@ import java.util.regex.Pattern;
 
 @Service
 public class PassengerMonitoringServiceImpl implements PassengerMonitoringService {
+    private static final Logger log = LoggerFactory.getLogger(PassengerMonitoringServiceImpl.class);
     private static final ZoneId DEFAULT_ZONE = ZoneId.of("America/Ojinaga");
     private static final Pattern EXTRA_UNIT_PATTERN = Pattern.compile("^EXTRA\\s+.+\\s+ID\\s+.+$", Pattern.CASE_INSENSITIVE);
 
@@ -93,10 +96,27 @@ public class PassengerMonitoringServiceImpl implements PassengerMonitoringServic
     @Override
     public List<UnitSummaryDTO> getUnitsByPlantWithEvents(Long plantId, Long fromUnix, Long toUnix) {
         IntervalRange intervalRange = resolveIntervalRange(fromUnix, toUnix);
+        Timestamp from = intervalRange.fromUnix() == null ? null : toTimestamp(intervalRange.fromUnix());
+        Timestamp to = intervalRange.toUnix() == null ? null : toTimestamp(intervalRange.toUnix());
         List<Unit> units = boardingEventRepository.findDistinctUnitsWithEventsByPlantAndBoardingTimeBetween(
                 plantId,
-                intervalRange.fromUnix() == null ? null : toTimestamp(intervalRange.fromUnix()),
-                intervalRange.toUnix() == null ? null : toTimestamp(intervalRange.toUnix())
+                from,
+                to
+        );
+        long eventsInRange = boardingEventRepository.countByPlantPlantIdAndBoardingTimeBetween(plantId, from, to);
+        Timestamp minBoardingTime = boardingEventRepository.findMinBoardingTimeByPlantAndRange(plantId, from, to);
+        Timestamp maxBoardingTime = boardingEventRepository.findMaxBoardingTimeByPlantAndRange(plantId, from, to);
+        log.info(
+                "Units with events diagnostics plantId={} fromUnix={} toUnix={} resolvedFrom={} resolvedTo={} eventsInRange={} unitsFound={} minBoardingTime={} maxBoardingTime={}",
+                plantId,
+                fromUnix,
+                toUnix,
+                from,
+                to,
+                eventsInRange,
+                units.size(),
+                minBoardingTime,
+                maxBoardingTime
         );
         units = sortUnits(units);
         List<UnitSummaryDTO> response = new ArrayList<>(units.size());
