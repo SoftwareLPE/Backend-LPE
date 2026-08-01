@@ -107,6 +107,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService {
         plant.setPlantName(dto.getPlantName().trim());
         plant.setFormatCatalogId(dto.getFormatCatalogId());
         plant.setFormatTypeId(resolveFormatTypeId(dto.getFormatCatalogId(), dto.getFormatTypeId()));
+        plant.setActive(Boolean.TRUE);
         plant.setCompany(company);
 
         Plant saved = plantRepository.save(plant);
@@ -135,6 +136,7 @@ public class CompanyAdminServiceImpl implements CompanyAdminService {
                 plant.setPlantName(plantDTO.getPlantName());
                 plant.setFormatCatalogId(plantDTO.getFormatCatalogId());
                 plant.setFormatTypeId(resolveFormatTypeId(plantDTO.getFormatCatalogId(), plantDTO.getFormatTypeId()));
+                plant.setActive(Boolean.TRUE);
                 plant.setCompany(savedCompany);
 
                 plantRepository.save(plant);

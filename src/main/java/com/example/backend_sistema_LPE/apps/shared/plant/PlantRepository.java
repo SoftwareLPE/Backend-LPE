@@ -63,7 +63,7 @@ public interface PlantRepository extends JpaRepository<Plant,Long> {
         p.plantId,
         p.plantName,
         count(distinct s.shiftId),
-        case when count(distinct s.shiftId) > 0 then true else false end
+        p.active
     )
     from Plant p
     join p.company c

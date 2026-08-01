@@ -85,6 +85,22 @@ public class PlantAdminServiceImpl implements PlantAdminService {
 
     @Override
     @Transactional
+    public PlantStatusDTO updatePlantActive(Long plantId, Long companyId, Boolean active) {
+        if (active == null) {
+            throw new RuntimeException("active is required");
+        }
+
+        Plant plant = plantRepository.findByPlantIdAndCompanyCompanyId(plantId, companyId)
+                .orElseThrow(() -> new RuntimeException("Plant not found in company. plantId=" + plantId + " companyId=" + companyId));
+
+        plant.setActive(active);
+        plantRepository.save(plant);
+
+        return new PlantStatusDTO(plant.getPlantId(), plant.getActive());
+    }
+
+    @Override
+    @Transactional
     public void deletePlant(Long companyId, Long plantId) {
         Plant plant = plantRepository.findByPlantIdAndCompanyCompanyId(plantId, companyId)
                 .orElseThrow(() -> new RuntimeException("Plant not found in company. plantId=" + plantId + " companyId=" + companyId));

@@ -39,6 +39,9 @@ public class Plant {
     @Column(name = "format_type_id")
     private Long formatTypeId;
 
+    @Column(name = "active", nullable = false)
+    private Boolean active = Boolean.TRUE;
+
     //Una planta puede tener varios choferes
     @OneToMany(mappedBy = "plant", cascade = CascadeType.REMOVE, orphanRemoval = true)
     @JsonIgnore

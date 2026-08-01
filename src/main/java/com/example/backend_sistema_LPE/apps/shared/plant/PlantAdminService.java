@@ -6,5 +6,7 @@ public interface PlantAdminService {
 
     UpdatePlantNameDTO updatePlantName(Long plantId, Long companyId, UpdatePlantNameDTO updatePlantNameDTO);
 
+    PlantStatusDTO updatePlantActive(Long plantId, Long companyId, Boolean active);
+
     void deletePlant(Long companyId, Long plantId);
 }

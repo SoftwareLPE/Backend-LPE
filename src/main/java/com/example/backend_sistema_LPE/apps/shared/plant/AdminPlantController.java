@@ -31,6 +31,15 @@ public class AdminPlantController {
         return ResponseEntity.ok(plantAdminService.updatePlantName(plantId, companyId, updatePlantNameDTO));
     }
 
+    @PatchMapping("/companies/{companyId}/plants/{plantId}/status")
+    public ResponseEntity<PlantStatusDTO> updatePlantStatus(
+            @PathVariable Long companyId,
+            @PathVariable Long plantId,
+            @RequestBody UpdatePlantActiveDTO request
+    ) {
+        return ResponseEntity.ok(plantAdminService.updatePlantActive(plantId, companyId, request.getActive()));
+    }
+
     @DeleteMapping("/companies/{companyId}/plants/{plantId}")
     public ResponseEntity<Void> deletePlant(
             @PathVariable Long companyId,
