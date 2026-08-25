@@ -36,6 +36,8 @@ dependencies {
     implementation("io.jsonwebtoken:jjwt:0.13.0")
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 
+    implementation("org.xhtmlrenderer:flying-saucer-pdf-openpdf:9.4.0")
+
 
 	compileOnly("org.projectlombok:lombok")
 	runtimeOnly("org.postgresql:postgresql")

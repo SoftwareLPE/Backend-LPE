@@ -15,7 +15,8 @@ public class CompanyMapper {
                 p.getPlantId(),
                 p.getPlantName(),
                 p.getFormatCatalogId(),
-                p.getFormatTypeId()
+                p.getFormatTypeId(),
+                p.getActive()
         );
     }
 

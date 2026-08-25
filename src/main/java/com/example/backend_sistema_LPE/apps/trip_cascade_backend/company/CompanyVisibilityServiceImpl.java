@@ -34,7 +34,8 @@ public class CompanyVisibilityServiceImpl implements CompanyVisibilityService {
 
         if (isAdmin){
             return companyRepository.findAllWithPlants().stream()
-                    .map(CompanyMapper::toDetailDTO)
+                    .map(this::toActiveDetailDTO)
+                    .filter(company -> !company.getPlantDTOList().isEmpty())
                     .toList();
         }
 
@@ -51,10 +52,26 @@ public class CompanyVisibilityServiceImpl implements CompanyVisibilityService {
                 .toList();
     }
 
+    private CompanyDetailDTO toActiveDetailDTO(Company company) {
+        List<PlantDTO> plants = company.getPlants() == null
+                ? List.of()
+                : company.getPlants().stream()
+                .filter(plant -> Boolean.TRUE.equals(plant.getActive()))
+                .map(CompanyMapper::toPlantDTO)
+                .toList();
+
+        return new CompanyDetailDTO(
+                company.getCompanyId(),
+                company.getCompanyName(),
+                plants
+        );
+    }
+
     private CompanyDetailDTO toFilteredDetailDTO(Company company, Set<Long> assignedPlantIds) {
         List<PlantDTO> plants = company.getPlants() == null
                 ? List.of()
                 : company.getPlants().stream()
+                .filter(plant -> Boolean.TRUE.equals(plant.getActive()))
                 .filter(plant -> plant.getPlantId() != null && assignedPlantIds.contains(plant.getPlantId()))
                 .map(CompanyMapper::toPlantDTO)
                 .toList();

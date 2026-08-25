@@ -116,7 +116,8 @@ public class CompanyAdminServiceImpl implements CompanyAdminService {
                 saved.getPlantId(),
                 saved.getPlantName(),
                 saved.getFormatCatalogId(),
-                saved.getFormatTypeId()
+                saved.getFormatTypeId(),
+                saved.getActive()
         );
     }
 

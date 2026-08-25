@@ -12,4 +12,5 @@ public class PlantDTO {
     private String plantName;
     private Long formatCatalogId;
     private Long formatTypeId;
+    private Boolean active;
 }
