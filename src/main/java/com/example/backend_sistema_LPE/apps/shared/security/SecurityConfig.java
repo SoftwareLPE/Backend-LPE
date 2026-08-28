@@ -60,6 +60,7 @@ public class SecurityConfig {
                         .requestMatchers("/admin/**").hasRole("ADMINISTRADOR")
                         .requestMatchers("/me/**").authenticated()
                         .requestMatchers("/user/me/**").authenticated()
+                        .requestMatchers("/api/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 // Si aún tienes httpBasic configurado y ya no lo quieres, NO lo llames aquí
