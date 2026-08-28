@@ -4,8 +4,6 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -17,8 +15,6 @@ import java.io.IOException;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
-    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
-
     private final JwtConfig jwtConfig;
     private final MyUserDetailsService userDetailsService;
 
@@ -38,33 +34,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.debug(
-                    "JWT header missing or invalid format method={} path={}",
-                    request.getMethod(),
-                    path
-            );
             filterChain.doFilter(request, response);
             return;
         }
         final String jwt = authHeader.substring(7); // Quitar "Bearer "
-
-        final String username;
-        try {
-            username = jwtConfig.extractUsername(jwt);
-        } catch (Exception ex) {
-            log.warn(
-                    "JWT parse failed method={} path={} reason={}",
-                    request.getMethod(),
-                    path,
-                    ex.getMessage()
-            );
-            filterChain.doFilter(request, response);
-            return;
-        }
+        final String username = jwtConfig.extractUsername(jwt);
 
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
 
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            System.out.println("AUTH: " + userDetails.getUsername());
+            System.out.println("ROLES: " + userDetails.getAuthorities());
 
             if (jwtConfig.isTokenValid(jwt, userDetails)) {
                 UsernamePasswordAuthenticationToken authToken =
@@ -79,20 +59,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 );
 
                 SecurityContextHolder.getContext().setAuthentication(authToken);
-                log.info(
-                        "JWT authenticated method={} path={} username={} roles={}",
-                        request.getMethod(),
-                        path,
-                        userDetails.getUsername(),
-                        userDetails.getAuthorities()
-                );
-            } else {
-                log.warn(
-                        "JWT validation failed method={} path={} username={}",
-                        request.getMethod(),
-                        path,
-                        userDetails.getUsername()
-                );
             }
         }
 
