@@ -32,52 +32,64 @@ public class PlantSyncServiceImpl implements PlantSyncService {
     @Override
     public ExecuteReportResponse syncPlant(Long plantId, PlantSyncRequest request) {
         log.info("Plant sync requested plantId={} request={}", plantId, request);
+        try {
+            Plant plant = plantRepository.findById(plantId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "Plant not found: " + plantId
+                    ));
 
-        Plant plant = plantRepository.findById(plantId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Plant not found: " + plantId
-                ));
-
-        if (plant.getWialonId() == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Plant does not have wialonId configured: " + plantId
+            log.info(
+                    "Plant sync plant loaded plantId={} plantName={} wialonId={} templateId={}",
+                    plant.getPlantId(),
+                    plant.getPlantName(),
+                    plant.getWialonId(),
+                    plant.getTemplateId()
             );
-        }
 
-        if (plant.getTemplateId() == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Plant does not have templateId configured: " + plantId
+            if (plant.getWialonId() == null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Plant does not have wialonId configured: " + plantId
+                );
+            }
+
+            if (plant.getTemplateId() == null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Plant does not have templateId configured: " + plantId
+                );
+            }
+
+            PlantSyncRequest safeRequest = request == null ? new PlantSyncRequest() : request;
+            log.info(
+                    "Plant sync resolved plantId={} plantName={} wialonId={} templateId={} intervalFrom={} intervalTo={} forceRefresh={}",
+                    plant.getPlantId(),
+                    plant.getPlantName(),
+                    plant.getWialonId(),
+                    plant.getTemplateId(),
+                    safeRequest.getIntervalFrom(),
+                    safeRequest.getIntervalTo(),
+                    safeRequest.getForceRefresh()
             );
+
+            ExecuteReportRequest executeRequest = new ExecuteReportRequest();
+            executeRequest.setResourceId(plant.getWialonId());
+            executeRequest.setTemplateId(plant.getTemplateId());
+            executeRequest.setObjectId(plant.getWialonId());
+            executeRequest.setObjectSecId(DEFAULT_OBJECT_SEC_ID);
+            executeRequest.setIntervalFrom(safeRequest.getIntervalFrom());
+            executeRequest.setIntervalTo(safeRequest.getIntervalTo());
+            executeRequest.setTableIndex(0);
+            executeRequest.setIndexFrom(0);
+            executeRequest.setIndexTo(1000);
+            executeRequest.setForceRefresh(Boolean.TRUE.equals(safeRequest.getForceRefresh()));
+
+            log.info("Plant sync executing report request={}", executeRequest);
+            return reportExecutionService.executeReport(executeRequest);
+        } catch (Exception ex) {
+            log.error("Plant sync failed before report execution plantId={} error={}", plantId, ex.getMessage(), ex);
+            throw ex;
         }
-
-        PlantSyncRequest safeRequest = request == null ? new PlantSyncRequest() : request;
-        log.info(
-                "Plant sync resolved plantId={} plantName={} wialonId={} templateId={} intervalFrom={} intervalTo={} forceRefresh={}",
-                plant.getPlantId(),
-                plant.getPlantName(),
-                plant.getWialonId(),
-                plant.getTemplateId(),
-                safeRequest.getIntervalFrom(),
-                safeRequest.getIntervalTo(),
-                safeRequest.getForceRefresh()
-        );
-
-        ExecuteReportRequest executeRequest = new ExecuteReportRequest();
-        executeRequest.setResourceId(plant.getWialonId());
-        executeRequest.setTemplateId(plant.getTemplateId());
-        executeRequest.setObjectId(plant.getWialonId());
-        executeRequest.setObjectSecId(DEFAULT_OBJECT_SEC_ID);
-        executeRequest.setIntervalFrom(safeRequest.getIntervalFrom());
-        executeRequest.setIntervalTo(safeRequest.getIntervalTo());
-        executeRequest.setTableIndex(0);
-        executeRequest.setIndexFrom(0);
-        executeRequest.setIndexTo(1000);
-        executeRequest.setForceRefresh(Boolean.TRUE.equals(safeRequest.getForceRefresh()));
-
-        log.info("Plant sync executing report request={}", executeRequest);
-        return reportExecutionService.executeReport(executeRequest);
     }
 }

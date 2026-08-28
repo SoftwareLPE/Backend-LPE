@@ -54,6 +54,7 @@ public class SecurityConfig {
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/login").permitAll()
+                        .requestMatchers("/error").permitAll()
 
                         // Permite el handshake del WebSocket STOMP.
                         .requestMatchers("/ws/**").permitAll()
