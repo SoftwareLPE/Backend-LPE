@@ -3,6 +3,8 @@ package com.example.backend_sistema_LPE.apps.passenger_boarding_backend.report;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -17,6 +19,7 @@ import java.util.Map;
 
 @Component
 public class WialonReportClient {
+    private static final Logger log = LoggerFactory.getLogger(WialonReportClient.class);
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -105,6 +108,8 @@ public class WialonReportClient {
             throw new IllegalArgumentException("sid is required");
         }
 
+        log.info("Wialon request service={} sid={} params={}", service, sid, params);
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
@@ -117,13 +122,17 @@ public class WialonReportClient {
         JsonNode response = restTemplate.postForObject(baseUrl, request, JsonNode.class);
 
         if (response == null) {
+            log.error("Wialon response service={} returned null response", service);
             throw new IllegalStateException("Wialon service " + service + " returned empty response.");
         }
+
+        log.info("Wialon response service={} body={}", service, response);
 
         int errorCode = response.path("error").asInt(0);
         if (errorCode != 0) {
             String reason = response.path("reason").asText("");
             String reasonText = reason.isBlank() ? "(no reason provided)" : reason;
+            log.error("Wialon service error service={} errorCode={} reason={}", service, errorCode, reasonText);
             throw new WialonApiException(service, errorCode, reasonText);
         }
 

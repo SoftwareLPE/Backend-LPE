@@ -100,7 +100,19 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
             long intervalToUnix
     ) {
         Instant start = Instant.now();
+        log.info(
+                "Report execution start requestKey={} resourceId={} templateId={} objectId={} objectSecId={} intervalFromUnix={} intervalToUnix={} forceRefresh={}",
+                requestKey,
+                request.getResourceId(),
+                request.getTemplateId(),
+                request.getObjectId(),
+                request.getObjectSecId(),
+                intervalFromUnix,
+                intervalToUnix,
+                request.getForceRefresh()
+        );
         String sid = sessionWialonService.getOrCreateValidSid();
+        log.info("Report execution obtained sid={} for requestKey={}", sid, requestKey);
 
         ReportExecution execution = new ReportExecution();
         execution.setReportResourceId(request.getResourceId());
@@ -121,12 +133,16 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
 
         try {
             try {
+                log.info("Report execution cleanup before exec_report sid={}", sid);
                 wialonReportClient.cleanupResult(sid);
             } catch (Exception ignored) {
                 // Best effort cleanup before exec_report.
             }
+
+            log.info("Report execution invoking exec_report sid={} requestKey={}", sid, requestKey);
             execResponse = execReportWithRetryOnInvalidSid(execution, sid, request, intervalFromUnix, intervalToUnix);
             sid = execution.getSidUsed();
+            log.info("Report execution exec_report completed sid={} requestKey={}", sid, requestKey);
 
             int tableIndex = defaultIfNull(request.getTableIndex(), 0);
             int totalRowsForSelect = extractTableTotalRows(execResponse, tableIndex);
@@ -135,6 +151,12 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
                     : defaultIfNull(request.getIndexTo(), 1000);
             log.info("Wialon exec_report totalRows tableIndex={} rows={}", tableIndex, totalRowsForSelect);
 
+            log.info("Report execution invoking select_result_rows sid={} tableIndex={} from={} to={}",
+                    sid,
+                    tableIndex,
+                    defaultIfNull(request.getIndexFrom(), 0),
+                    indexTo
+            );
             rowsResponse = wialonReportClient.selectResultRows(
                     sid,
                     tableIndex,
@@ -178,6 +200,17 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
             response.setRowsRaw(rowsResponse);
             return response;
         } catch (Exception ex) {
+            log.error(
+                    "Report execution failed requestKey={} resourceId={} templateId={} objectId={} intervalFromUnix={} intervalToUnix={} error={}",
+                    requestKey,
+                    request.getResourceId(),
+                    request.getTemplateId(),
+                    request.getObjectId(),
+                    intervalFromUnix,
+                    intervalToUnix,
+                    ex.getMessage(),
+                    ex
+            );
             execution.setStatus(ReportExecutionStatus.FAILED);
             execution.setFinishedAt(Timestamp.from(Instant.now()));
             execution.setDurationMs((int) Duration.between(start, Instant.now()).toMillis());
@@ -186,6 +219,7 @@ public class ReportExecutionServiceImpl implements ReportExecutionService {
             throw ex;
         } finally {
             try {
+                log.info("Report execution cleanup after execution sid={}", sid);
                 wialonReportClient.cleanupResult(sid);
             } catch (Exception ignored) {
                 // Best effort cleanup.
