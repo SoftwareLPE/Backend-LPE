@@ -54,13 +54,13 @@ public class SessionWialonServiceImpl implements SessionWialonService {
 
         SessionWialon session = activeSession.get();
         if (isSessionExpired(session)) {
-            log.warn("Wialon session expired sessionId={} sid={}", session.getSessionId(), session.getSid());
+            log.warn("Wialon session expired wialonSessionId={} sid={}", session.getWialonId(), session.getSid());
             session.setActive(false);
             sessionWialonRepository.save(session);
             return Optional.empty();
         }
 
-        log.info("Wialon session reuse sessionId={} sid={} expiresAt={}", session.getSessionId(), session.getSid(), session.getExpiresAt());
+        log.info("Wialon session reuse wialonSessionId={} sid={} expiresAt={}", session.getWialonId(), session.getSid(), session.getExpiresAt());
         session.setLastUsedAt(Timestamp.from(Instant.now()));
         sessionWialonRepository.save(session);
         return Optional.of(session.getSid());
@@ -116,7 +116,7 @@ public class SessionWialonServiceImpl implements SessionWialonService {
         Timestamp expiresAt = Timestamp.from(expiresAtInstant);
 
         SessionWialon savedSession = registerNewSession(sid, wialonToken, expiresAt);
-        log.info("Wialon forceRefreshSid created sessionId={} sid={} expiresAt={}", savedSession.getSessionId(), savedSession.getSid(), savedSession.getExpiresAt());
+        log.info("Wialon forceRefreshSid created wialonSessionId={} sid={} expiresAt={}", savedSession.getWialonId(), savedSession.getSid(), savedSession.getExpiresAt());
         return savedSession.getSid();
     }
 }
