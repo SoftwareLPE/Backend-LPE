@@ -85,7 +85,7 @@ public class Plant {
     private List<FlexsurServiceDriverAssignment> flexsurServiceDriverAssignments;
 
     @ManyToOne
-    @JoinColumn(name = "companyId",nullable = false)
+    @JoinColumn(name = "company_id", nullable = false)
     @JsonIgnore
     private Company company;
 
