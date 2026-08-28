@@ -32,16 +32,22 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsService myUserDetailsService;
     private final List<String> allowedOrigins;
+    private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
+    private final RestAccessDeniedHandler restAccessDeniedHandler;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           MyUserDetailsService myUserDetailsService,
-                          @Value("${app.cors.allowed-origins}") String allowedOrigins) {
+                          @Value("${app.cors.allowed-origins}") String allowedOrigins,
+                          RestAuthenticationEntryPoint restAuthenticationEntryPoint,
+                          RestAccessDeniedHandler restAccessDeniedHandler) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.myUserDetailsService = myUserDetailsService;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
                 .toList();
+        this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
+        this.restAccessDeniedHandler = restAccessDeniedHandler;
     }
 
     @Bean
@@ -51,6 +57,10 @@ public class SecurityConfig {
 
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(restAuthenticationEntryPoint)
+                        .accessDeniedHandler(restAccessDeniedHandler)
+                )
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/login").permitAll()
@@ -58,6 +68,7 @@ public class SecurityConfig {
                         // Permite el handshake del WebSocket STOMP.
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMINISTRADOR")
+                        .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/me/**").authenticated()
                         .requestMatchers("/user/me/**").authenticated()
                         .anyRequest().authenticated()
