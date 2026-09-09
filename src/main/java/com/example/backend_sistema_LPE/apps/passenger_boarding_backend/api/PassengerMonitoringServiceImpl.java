@@ -87,7 +87,7 @@ public class PassengerMonitoringServiceImpl implements PassengerMonitoringServic
                     unit.getInternalId(),
                     unit.getRouteCode(),
                     unit.getRouteName(),
-                    unit.getWialonId()
+                    unit.getWialonUnitId()
             ));
         }
         return response;
@@ -127,7 +127,7 @@ public class PassengerMonitoringServiceImpl implements PassengerMonitoringServic
                     unit.getInternalId(),
                     unit.getRouteCode(),
                     unit.getRouteName(),
-                    unit.getWialonId()
+                    unit.getWialonUnitId()
             ));
         }
         return response;

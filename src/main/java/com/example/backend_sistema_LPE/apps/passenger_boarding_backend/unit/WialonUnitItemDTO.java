@@ -6,6 +6,6 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public class WialonUnitItemDTO {
-    private final Long wialonId;
+    private final Long wialonUnitId;
     private final String unitName;
 }

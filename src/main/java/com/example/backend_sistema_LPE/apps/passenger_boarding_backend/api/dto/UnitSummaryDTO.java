@@ -26,6 +26,6 @@ public class UnitSummaryDTO {
     @JsonProperty("route_name")
     private String routeName;
 
-    @JsonProperty("wialon_id")
-    private Long wialonId;
+    @JsonProperty("wialon_unit_id")
+    private Long wialonUnitId;
 }

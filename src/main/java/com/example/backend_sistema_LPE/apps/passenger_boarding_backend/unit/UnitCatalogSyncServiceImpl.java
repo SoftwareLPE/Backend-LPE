@@ -60,7 +60,7 @@ public class UnitCatalogSyncServiceImpl implements UnitCatalogSyncService {
         Set<Long> wialonUnitIds = extractWialonUnitIds(groupNode.path("u"));
         Map<Long, WialonUnitItemDTO> remoteUnitsById = mapRemoteUnits(wialonUnitClient.searchUnitsByIds(wialonUnitIds));
         List<Unit> localUnits = unitRepository.findAllByPlantPlantId(plantId);
-        Map<Long, Unit> localUnitsByWialonId = mapLocalUnitsByWialonId(localUnits);
+        Map<Long, Unit> localUnitsByWialonUnitId = mapLocalUnitsByWialonUnitId(localUnits);
         Timestamp now = Timestamp.from(Instant.now());
 
         int createdUnits = 0;
@@ -70,12 +70,12 @@ public class UnitCatalogSyncServiceImpl implements UnitCatalogSyncService {
         int inactivatedUnits = 0;
 
         for (WialonUnitItemDTO remoteUnit : remoteUnitsById.values()) {
-            Unit localUnit = localUnitsByWialonId.get(remoteUnit.getWialonId());
+            Unit localUnit = localUnitsByWialonUnitId.get(remoteUnit.getWialonUnitId());
             if (localUnit == null) {
                 Unit created = new Unit();
                 created.setPlant(plant);
-                created.setWialonId(remoteUnit.getWialonId());
-                created.setNameRaw(resolveUnitName(remoteUnit.getUnitName(), remoteUnit.getWialonId(), null));
+                created.setWialonUnitId(remoteUnit.getWialonUnitId());
+                created.setNameRaw(resolveUnitName(remoteUnit.getUnitName(), remoteUnit.getWialonUnitId(), null));
                 unitNameNormalizationService.apply(created, created.getNameRaw());
                 created.setActive(true);
                 created.setLastSyncedAt(now);
@@ -90,7 +90,7 @@ public class UnitCatalogSyncServiceImpl implements UnitCatalogSyncService {
                 reactivatedUnits++;
             }
 
-            String resolvedName = resolveUnitName(remoteUnit.getUnitName(), remoteUnit.getWialonId(), localUnit.getNameRaw());
+            String resolvedName = resolveUnitName(remoteUnit.getUnitName(), remoteUnit.getWialonUnitId(), localUnit.getNameRaw());
             if (!Objects.equals(localUnit.getNameRaw(), resolvedName)) {
                 localUnit.setNameRaw(resolvedName);
                 unitNameNormalizationService.apply(localUnit, resolvedName);
@@ -103,7 +103,7 @@ public class UnitCatalogSyncServiceImpl implements UnitCatalogSyncService {
         }
 
         for (Unit unit : localUnits) {
-            boolean shouldBeActive = unit.getWialonId() != null && wialonUnitIds.contains(unit.getWialonId());
+            boolean shouldBeActive = unit.getWialonUnitId() != null && wialonUnitIds.contains(unit.getWialonUnitId());
             if (shouldBeActive) {
                 continue;
             }
@@ -161,30 +161,30 @@ public class UnitCatalogSyncServiceImpl implements UnitCatalogSyncService {
     private Map<Long, WialonUnitItemDTO> mapRemoteUnits(List<WialonUnitItemDTO> remoteUnits) {
         Map<Long, WialonUnitItemDTO> result = new HashMap<>();
         for (WialonUnitItemDTO unit : remoteUnits) {
-            if (unit.getWialonId() != null) {
-                result.put(unit.getWialonId(), unit);
+            if (unit.getWialonUnitId() != null) {
+                result.put(unit.getWialonUnitId(), unit);
             }
         }
         return result;
     }
 
-    private Map<Long, Unit> mapLocalUnitsByWialonId(List<Unit> localUnits) {
+    private Map<Long, Unit> mapLocalUnitsByWialonUnitId(List<Unit> localUnits) {
         Map<Long, Unit> result = new HashMap<>();
         for (Unit unit : localUnits) {
-            if (unit.getWialonId() != null) {
-                result.put(unit.getWialonId(), unit);
+            if (unit.getWialonUnitId() != null) {
+                result.put(unit.getWialonUnitId(), unit);
             }
         }
         return result;
     }
 
-    private String resolveUnitName(String remoteName, Long wialonId, String currentName) {
+    private String resolveUnitName(String remoteName, Long wialonUnitId, String currentName) {
         if (remoteName != null && !remoteName.isBlank()) {
             return remoteName.trim();
         }
         if (currentName != null && !currentName.isBlank()) {
             return currentName.trim();
         }
-        return "UNIT-" + wialonId;
+        return "UNIT-" + wialonUnitId;
     }
 }

@@ -86,12 +86,12 @@ public class WialonUnitClient {
 
         List<WialonUnitItemDTO> result = new ArrayList<>();
         for (JsonNode item : items) {
-            Long wialonId = item.path("id").isIntegralNumber() ? item.path("id").asLong() : null;
-            if (wialonId == null) {
+            Long wialonUnitId = item.path("id").isIntegralNumber() ? item.path("id").asLong() : null;
+            if (wialonUnitId == null) {
                 continue;
             }
             result.add(new WialonUnitItemDTO(
-                    wialonId,
+                    wialonUnitId,
                     item.path("nm").asText(null)
             ));
         }

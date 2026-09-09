@@ -8,7 +8,7 @@ import java.util.Optional;
 
 @Repository
 public interface UnitRepository extends JpaRepository<Unit, Long> {
-    Optional<Unit> findByPlantPlantIdAndWialonId(Long plantId, Long wialonId);
+    Optional<Unit> findByPlantPlantIdAndWialonUnitId(Long plantId, Long wialonUnitId);
 
     List<Unit> findAllByPlantPlantIdAndIsActiveTrueOrderByNameRawAsc(Long plantId);
 

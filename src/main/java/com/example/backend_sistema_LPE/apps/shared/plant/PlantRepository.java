@@ -22,7 +22,7 @@ public interface PlantRepository extends JpaRepository<Plant,Long> {
     Optional<Plant> findByIdForUpdate(@Param("plantId") Long plantId);
 
     Optional<Plant> findByPlantIdAndCompanyCompanyId(Long plantId, Long companyId);
-    Optional<Plant> findByWialonId(long wialonId);
+    Optional<Plant> findByWialonResourceId(long wialonResourceId);
 
     @Query("""
     select p.plantId

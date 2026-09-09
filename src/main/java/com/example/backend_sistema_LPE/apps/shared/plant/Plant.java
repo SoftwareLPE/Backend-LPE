@@ -89,7 +89,8 @@ public class Plant {
     @JsonIgnore
     private Company company;
 
-    private Long wialonId;
+    @Column(name = "wialon_resource_id")
+    private Long wialonResourceId;
     private Long templateId;
     private Timestamp lastSyncedAt;
 

@@ -20,7 +20,7 @@ import java.sql.Timestamp;
 
 @Entity
 @Table(name = "units", uniqueConstraints = {
-                @UniqueConstraint(name = "uk_unit_plant_wialon", columnNames = {"plant_id", "wialon_id"})
+                @UniqueConstraint(name = "uk_unit_plant_wialon", columnNames = {"plant_id", "wialon_unit_id"})
         }
 )
 @NoArgsConstructor
@@ -33,8 +33,8 @@ public class Unit {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long unitId;
 
-    @Column(name = "wialon_id", nullable = false)
-    private Long wialonId;
+    @Column(name = "wialon_unit_id", nullable = false)
+    private Long wialonUnitId;
 
     @Column(name = "name_raw", nullable = false, length = 255)
     private String nameRaw;

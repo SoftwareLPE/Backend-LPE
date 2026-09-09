@@ -69,7 +69,8 @@ public class BoardingEventApiSyncServiceImpl implements BoardingEventApiSyncServ
             Long objectSecId,
             int tableIndex
     ) {
-        Plant plant = plantRepository.findByWialonId(resourceId).orElseThrow(() -> new IllegalStateException("Plant not found for wialon resourceId: " + resourceId));
+        Plant plant = plantRepository.findByWialonResourceId(resourceId)
+                .orElseThrow(() -> new IllegalStateException("Plant not found for wialonResourceId: " + resourceId));
 
         PassengerGroup passengerGroup = resolvePassengerGroup(plant, objectSecId);
         List<JsonNode> candidateRows = flattenRows(rowsResponse);
@@ -264,7 +265,7 @@ public class BoardingEventApiSyncServiceImpl implements BoardingEventApiSyncServ
     }
 
     private Unit resolveUnit(Plant plant, long unitWialonId, String unitNameRaw) {
-        Optional<Unit> existing = unitRepository.findByPlantPlantIdAndWialonId(plant.getPlantId(), unitWialonId);
+        Optional<Unit> existing = unitRepository.findByPlantPlantIdAndWialonUnitId(plant.getPlantId(), unitWialonId);
         if (existing.isPresent()) {
             Unit unit = existing.get();
             if (unitNameRaw != null && !unitNameRaw.isBlank()) {
@@ -278,7 +279,7 @@ public class BoardingEventApiSyncServiceImpl implements BoardingEventApiSyncServ
 
         Unit unit = new Unit();
         unit.setPlant(plant);
-        unit.setWialonId(unitWialonId);
+        unit.setWialonUnitId(unitWialonId);
         unit.setNameRaw(unitNameRaw == null || unitNameRaw.isBlank() ? "UNIT-" + unitWialonId : unitNameRaw);
         unitNameNormalizationService.apply(unit, unit.getNameRaw());
         unit.setActive(true);

@@ -37,6 +37,8 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 
     implementation("org.xhtmlrenderer:flying-saucer-pdf-openpdf:9.4.0")
+    implementation("org.flywaydb:flyway-core")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql")
 
 
 	compileOnly("org.projectlombok:lombok")

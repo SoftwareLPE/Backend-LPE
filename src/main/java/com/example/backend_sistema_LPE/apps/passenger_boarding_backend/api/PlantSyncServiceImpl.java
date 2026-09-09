@@ -40,17 +40,17 @@ public class PlantSyncServiceImpl implements PlantSyncService {
                     ));
 
             log.info(
-                    "Plant sync plant loaded plantId={} plantName={} wialonId={} templateId={}",
+                    "Plant sync plant loaded plantId={} plantName={} wialonResourceId={} templateId={}",
                     plant.getPlantId(),
                     plant.getPlantName(),
-                    plant.getWialonId(),
+                    plant.getWialonResourceId(),
                     plant.getTemplateId()
             );
 
-            if (plant.getWialonId() == null) {
+            if (plant.getWialonResourceId() == null) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
-                        "Plant does not have wialonId configured: " + plantId
+                        "Plant does not have wialonResourceId configured: " + plantId
                 );
             }
 
@@ -63,10 +63,10 @@ public class PlantSyncServiceImpl implements PlantSyncService {
 
             PlantSyncRequest safeRequest = request == null ? new PlantSyncRequest() : request;
             log.info(
-                    "Plant sync resolved plantId={} plantName={} wialonId={} templateId={} intervalFrom={} intervalTo={} forceRefresh={}",
+                    "Plant sync resolved plantId={} plantName={} wialonResourceId={} templateId={} intervalFrom={} intervalTo={} forceRefresh={}",
                     plant.getPlantId(),
                     plant.getPlantName(),
-                    plant.getWialonId(),
+                    plant.getWialonResourceId(),
                     plant.getTemplateId(),
                     safeRequest.getIntervalFrom(),
                     safeRequest.getIntervalTo(),
@@ -74,9 +74,9 @@ public class PlantSyncServiceImpl implements PlantSyncService {
             );
 
             ExecuteReportRequest executeRequest = new ExecuteReportRequest();
-            executeRequest.setResourceId(plant.getWialonId());
+            executeRequest.setResourceId(plant.getWialonResourceId());
             executeRequest.setTemplateId(plant.getTemplateId());
-            executeRequest.setObjectId(plant.getWialonId());
+            executeRequest.setObjectId(plant.getWialonResourceId());
             executeRequest.setObjectSecId(DEFAULT_OBJECT_SEC_ID);
             executeRequest.setIntervalFrom(safeRequest.getIntervalFrom());
             executeRequest.setIntervalTo(safeRequest.getIntervalTo());
