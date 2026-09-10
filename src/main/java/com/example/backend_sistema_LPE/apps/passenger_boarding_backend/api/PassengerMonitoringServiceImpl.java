@@ -5,6 +5,8 @@ import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.api.dto.U
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.api.dto.UnitSummaryDTO;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingEvent;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingEventRepository;
+import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingShiftClassificationResult;
+import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.BoardingShiftClassifierService;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.unit.Unit;
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.unit.UnitRepository;
 import com.example.backend_sistema_LPE.apps.shared.plant.Plant;
@@ -37,15 +39,18 @@ public class PassengerMonitoringServiceImpl implements PassengerMonitoringServic
     private final PlantRepository plantRepository;
     private final UnitRepository unitRepository;
     private final BoardingEventRepository boardingEventRepository;
+    private final BoardingShiftClassifierService boardingShiftClassifierService;
 
     public PassengerMonitoringServiceImpl(
             PlantRepository plantRepository,
             UnitRepository unitRepository,
-            BoardingEventRepository boardingEventRepository
+            BoardingEventRepository boardingEventRepository,
+            BoardingShiftClassifierService boardingShiftClassifierService
     ) {
         this.plantRepository = plantRepository;
         this.unitRepository = unitRepository;
         this.boardingEventRepository = boardingEventRepository;
+        this.boardingShiftClassifierService = boardingShiftClassifierService;
     }
 
     @Override
@@ -189,19 +194,37 @@ public class PassengerMonitoringServiceImpl implements PassengerMonitoringServic
 
         Page<BoardingEvent> rows = boardingEventRepository.findAll(spec, pageable);
         List<UnitPassengerRowDTO> mapped = rows.getContent().stream()
-                .map(row -> new UnitPassengerRowDTO(
-                        row.getBoardingEventId(),
-                        row.getPassenger() == null ? null : row.getPassenger().getPassengerId(),
-                        row.getPassenger() == null ? null : row.getPassenger().getWialonPassengerId(),
-                        row.getShift(),
-                        row.getBoardingTime(),
-                        row.getAlightingTime(),
-                        row.getStartLocationText(),
-                        row.getEndLocationText()
-                ))
+                .map(this::mapPassengerRowWithResolvedBoardingShift)
                 .toList();
 
         return new PageImpl<>(mapped, pageable, rows.getTotalElements());
+    }
+
+    private UnitPassengerRowDTO mapPassengerRowWithResolvedBoardingShift(BoardingEvent row) {
+        String shiftName = row.getShift();
+        try {
+            BoardingShiftClassificationResult classification = boardingShiftClassifierService
+                    .determinePassengerBoardingShift(row);
+            shiftName = classification.shift().getShiftName();
+        } catch (IllegalStateException exception) {
+            log.warn(
+                    "Boarding event could not be classified by active shift windows; returning raw shift eventId={} boardingTime={} rawShift={}",
+                    row.getBoardingEventId(),
+                    row.getBoardingTime(),
+                    row.getShift()
+            );
+        }
+
+        return new UnitPassengerRowDTO(
+                row.getBoardingEventId(),
+                row.getPassenger() == null ? null : row.getPassenger().getPassengerId(),
+                row.getPassenger() == null ? null : row.getPassenger().getWialonPassengerId(),
+                shiftName,
+                row.getBoardingTime(),
+                row.getAlightingTime(),
+                row.getStartLocationText(),
+                row.getEndLocationText()
+        );
     }
 
     private Timestamp toTimestamp(Long unixSeconds) {

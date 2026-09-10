@@ -2,6 +2,8 @@ package com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenge
 
 import com.example.backend_sistema_LPE.apps.passenger_boarding_backend.passenger.dto.BoardingEventViewResponse;
 import jakarta.persistence.criteria.Predicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -13,6 +15,7 @@ import java.util.List;
 
 @Service
 public class BoardingEventQueryService {
+    private static final Logger log = LoggerFactory.getLogger(BoardingEventQueryService.class);
 
     private final BoardingEventRepository boardingEventRepository;
     private final BoardingShiftClassifierService boardingShiftClassifierService;
@@ -60,7 +63,19 @@ public class BoardingEventQueryService {
         List<BoardingEventViewResponse> response = new ArrayList<>(rows.size());
         BoardingShiftEventType requestedWindowType = parseWindowType(windowType);
         for (BoardingEvent row : rows) {
-            BoardingShiftClassificationResult shiftWindowResolution = boardingShiftClassifierService.determinePassengerBoardingShift(row);
+            BoardingShiftClassificationResult shiftWindowResolution;
+            try {
+                shiftWindowResolution = boardingShiftClassifierService.determinePassengerBoardingShift(row);
+            } catch (IllegalStateException exception) {
+                log.warn(
+                        "Skipping boarding event without active shift-window classification eventId={} plantId={} boardingTime={} rawShift={}",
+                        row.getBoardingEventId(),
+                        row.getPlant() == null ? null : row.getPlant().getPlantId(),
+                        row.getBoardingTime(),
+                        row.getShift()
+                );
+                continue;
+            }
             if (resolvedShiftId != null) {
                 Long currentResolvedShiftId = shiftWindowResolution.shift() == null
                         ? null
