@@ -63,6 +63,18 @@ public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifi
                     resolvedMatch.get().shift().getEndTime(),
                     resolvedMatch.get().eventType()
             );
+        } else {
+            log.warn(
+                    "No boarding shift window matched plantId={} boardingTimestamp={} localBoardingTime={} activeShifts={}",
+                    plantId,
+                    boardingTime,
+                    boardingTime.toInstant().atZone(DEFAULT_ZONE).toLocalDateTime(),
+                    shifts.stream()
+                            .map(shift -> shift.getShiftId() + ":" + shift.getShiftName()
+                                    + "[" + shift.getStartTime() + "-" + shift.getEndTime()
+                                    + ", days=" + shift.getDayKeys() + "]")
+                            .toList()
+            );
         }
         return resolvedMatch
                 .map(windowMatch -> new BoardingShiftClassificationResult(windowMatch.shift(), windowMatch.eventType()))
