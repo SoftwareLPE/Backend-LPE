@@ -11,7 +11,6 @@ import java.text.Normalizer;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -22,7 +21,6 @@ import java.util.Optional;
 @Service
 public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifierService {
     private static final Logger log = LoggerFactory.getLogger(BoardingShiftClassifierServiceImpl.class);
-    private static final ZoneId DEFAULT_ZONE = ZoneId.of("America/Ojinaga");
     private static final Duration ENTRY_WINDOW_BEFORE = Duration.ofMinutes(120);
     private static final Duration EXIT_WINDOW_AFTER = Duration.ofMinutes(120);
 
@@ -57,7 +55,7 @@ public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifi
                     "Boarding shift classification plantId={} boardingTimestamp={} localBoardingTime={} shiftId={} shiftName={} startTime={} endTime={} eventType={}",
                     plantId,
                     boardingTime,
-                    boardingTime.toInstant().atZone(DEFAULT_ZONE).toLocalDateTime(),
+                    toBoardingLocalDateTime(boardingTime),
                     resolvedMatch.get().shift().getShiftId(),
                     resolvedMatch.get().shift().getShiftName(),
                     resolvedMatch.get().shift().getStartTime(),
@@ -69,7 +67,7 @@ public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifi
                     "No boarding shift window matched plantId={} boardingTimestamp={} localBoardingTime={} activeShifts={}",
                     plantId,
                     boardingTime,
-                    boardingTime.toInstant().atZone(DEFAULT_ZONE).toLocalDateTime(),
+                    toBoardingLocalDateTime(boardingTime),
                     shifts.stream()
                             .map(shift -> shift.getShiftId() + ":" + shift.getShiftName()
                                     + "[" + shift.getStartTime() + "-" + shift.getEndTime()
@@ -83,7 +81,7 @@ public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifi
     }
 
     private Optional<ShiftWindowMatch> determineBoardingShiftByTimeWindows(List<Shift> shifts, Timestamp boardingTime) {
-        LocalDateTime boardingDateTime = boardingTime.toInstant().atZone(DEFAULT_ZONE).toLocalDateTime();
+        LocalDateTime boardingDateTime = toBoardingLocalDateTime(boardingTime);
         LocalDate boardingDate = boardingDateTime.toLocalDate();
 
         List<ShiftWindowMatch> matches = new ArrayList<>();
@@ -222,5 +220,13 @@ public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifi
             Shift shift,
             BoardingShiftEventType eventType
     ) {
+    }
+
+    /**
+     * boarding_time is a timestamp without time zone and stores the local
+     * business time. Applying another explicit zone would shift the event.
+     */
+    private LocalDateTime toBoardingLocalDateTime(Timestamp boardingTime) {
+        return boardingTime.toLocalDateTime();
     }
 }
