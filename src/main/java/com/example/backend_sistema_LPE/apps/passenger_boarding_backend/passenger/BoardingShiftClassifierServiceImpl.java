@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.sql.Timestamp;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -162,7 +163,7 @@ public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifi
             return false;
         }
 
-        String dayKey = switch (shiftStartDate.getDayOfWeek()) {
+        String spanishDayKey = switch (shiftStartDate.getDayOfWeek()) {
             case MONDAY -> "lun";
             case TUESDAY -> "mar";
             case WEDNESDAY -> "mie";
@@ -171,11 +172,19 @@ public class BoardingShiftClassifierServiceImpl implements BoardingShiftClassifi
             case SATURDAY -> "sab";
             case SUNDAY -> "dom";
         };
+        String englishDayKey = shiftStartDate.getDayOfWeek().name().toLowerCase(Locale.ROOT);
 
         return shift.getDayKeys().stream()
                 .filter(Objects::nonNull)
-                .map(value -> value.trim().toLowerCase(Locale.ROOT))
-                .anyMatch(value -> value.equals(dayKey) || value.equals(dayNameInSpanish(dayKey)));
+                .map(this::normalizeDayKey)
+                .anyMatch(value -> value.equals(normalizeDayKey(spanishDayKey))
+                        || value.equals(normalizeDayKey(dayNameInSpanish(spanishDayKey)))
+                        || value.equals(englishDayKey));
+    }
+
+    private String normalizeDayKey(String value) {
+        return Normalizer.normalize(value.trim().toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
     }
 
     private String dayNameInSpanish(String abbreviatedDayKey) {
